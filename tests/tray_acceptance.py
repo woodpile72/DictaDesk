@@ -20,6 +20,7 @@ errors, registrations = [], []
 connection = None
 owner = None
 host = True
+maps = []
 
 
 def later(fn):
@@ -39,6 +40,8 @@ def later(fn):
 
 def begin():
     global connection, owner
+    assert not app.window.get_visible()
+    app.window.connect("map", lambda *_: maps.append(True))
     connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 
     def register(conn, sender, path, iface, method, args, invocation):
@@ -77,6 +80,7 @@ def registered():
     app.refresh()
     assert app.tray.state == "processing"
     app.session.phase = "idle"
+    app.refresh()
 
     def got(conn, result):
         try:
@@ -84,7 +88,7 @@ def registered():
             assert layout[0] == 0 and len(layout[2]) == 5, layout
             labels = [node[1]["label"] for node in layout[2]]
             assert "Show DictaDesk" in labels and "Quit" in labels
-            later(lose_host)
+            later(open_preferences)
         except Exception as exc:
             errors.append(exc)
             app.request_quit()
@@ -101,6 +105,79 @@ def registered():
         None,
         got,
     )
+
+
+def open_preferences():
+    connection.call(
+        connection.get_unique_name(),
+        "/StatusNotifierItem",
+        "org.kde.StatusNotifierItem",
+        "ContextMenu",
+        GLib.Variant("(ii)", (0, 0)),
+        None,
+        Gio.DBusCallFlags.NONE,
+        2000,
+        None,
+        None,
+    )
+    connection.call(
+        connection.get_unique_name(),
+        "/Menu",
+        "com.canonical.dbusmenu",
+        "Event",
+        GLib.Variant("(isvu)", (4, "clicked", GLib.Variant("s", ""), 0)),
+        None,
+        Gio.DBusCallFlags.NONE,
+        2000,
+        None,
+        None,
+    )
+    later(preferences_open)
+
+
+def preferences_open():
+    p = app.preferences_dialog
+    assert p and p.dialog.get_mapped()
+    assert p.dialog.get_transient_for() is None
+    assert not app.window.get_visible() and not maps
+    monitor = p.dialog.get_display().get_monitor_at_surface(p.dialog.get_surface())
+    assert p.dialog.get_height() <= monitor.get_geometry().height - 96
+    app.tray.event(4, "clicked")
+    assert app.preferences_dialog is p
+    p.dialog.close()
+    later(preferences_closed)
+
+
+def preferences_closed():
+    assert app.preferences_dialog is None
+    assert not app.window.get_visible() and not maps
+    app.tray.event(1, "clicked")
+    assert app.window.get_visible()
+    app.tray.event(4, "clicked")
+    later(preferences_from_visible)
+
+
+def preferences_from_visible():
+    p = app.preferences_dialog
+    assert p.dialog.get_mapped() and p.dialog.get_transient_for() is app.window
+    p.dialog.close()
+    assert app.window.get_visible()
+    app.window.set_visible(False)
+    app.tray.event(4, "clicked")
+    later(save_hidden_preferences)
+
+
+def save_hidden_preferences():
+    p = app.preferences_dialog
+    assert p.dialog.get_mapped() and not app.window.get_visible()
+    with patch.object(
+        app, "save_preferences", side_effect=lambda prefs, key, close: close()
+    ) as saved:
+        p.save_clicked()
+        saved.assert_called_once()
+    assert app.preferences_dialog is None
+    assert not app.window.get_visible()
+    later(lose_host)
 
 
 def lose_host():
@@ -129,14 +206,21 @@ def restored():
 
 def done():
     assert not app.tray.ready
-    print("PASS tray registration, menu layout, host-loss recovery and watcher loss")
+    print(
+        "PASS tray registration, Preferences-only activation/close/save, visible-parent behavior, host-loss recovery and watcher loss"
+    )
     app.request_quit()
 
 
 with (
     patch("dictadesk.core.session.check"),
+    patch("dictadesk.ui.preferences.read_key", return_value=""),
+    patch(
+        "dictadesk.ui.preferences.compute_capabilities",
+        return_value={"cuda": False, "reason": "CPU test"},
+    ),
     patch("dictadesk.core.session.microphones", return_value=[]),
 ):
     later(begin)
-    app.run(["dictadesk-tray-test"])
+    app.run(["dictadesk-tray-test", "--background"])
 assert not errors, errors

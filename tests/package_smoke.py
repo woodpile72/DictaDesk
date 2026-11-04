@@ -13,11 +13,12 @@ from dictadesk import APP_ID, __version__  # noqa: E402
 from dictadesk.core.settings import SettingsStore  # noqa: E402
 from dictadesk.core.models import model_directory  # noqa: E402
 from gi.repository import Gio, GLib  # noqa: E402
-from Xlib import display, X  # noqa: E402
+from Xlib import display, X, XK  # noqa: E402
+from Xlib.ext import xtest  # noqa: E402
 import onnxruntime  # noqa: E402
 import moonshine_voice  # noqa: E402, F401
 
-assert __version__ == "1.0.8"
+assert __version__ == "1.0.10"
 assert onnxruntime.get_available_providers()
 assert SettingsStore().read().local_model == "parakeet"
 assert str(model_directory(create=True)).startswith("/var/cache/dictadesk/")
@@ -61,9 +62,33 @@ try:
         assert process.poll() is None
         time.sleep(0.1)
     assert owns()
+    connection = display.Display()
+    action("preferences")
+    time.sleep(0.5)
+    mapped = [
+        w
+        for w in connection.screen().root.query_tree().children
+        if w.get_wm_class()
+        and any("dictadesk" in c.lower() for c in w.get_wm_class())
+        and w.get_attributes().map_state == X.IsViewable
+    ]
+    assert len(mapped) == 1 and mapped[0].get_wm_name() == "Preferences", (
+        "Tray Preferences unexpectedly opened the main window"
+    )
+    connection.set_input_focus(mapped[0], X.RevertToParent, X.CurrentTime)
+    escape = connection.keysym_to_keycode(XK.string_to_keysym("Escape"))
+    xtest.fake_input(connection, X.KeyPress, escape)
+    xtest.fake_input(connection, X.KeyRelease, escape)
+    connection.sync()
+    time.sleep(0.3)
+    assert not any(
+        w.get_wm_class()
+        and any("dictadesk" in c.lower() for c in w.get_wm_class())
+        and w.get_attributes().map_state == X.IsViewable
+        for w in connection.screen().root.query_tree().children
+    ), "Closing tray Preferences revealed the main window"
     action("show")
     time.sleep(0.5)
-    connection = display.Display()
     visible = [
         w
         for w in connection.screen().root.query_tree().children
@@ -101,7 +126,7 @@ try:
     assert not owns()
     assert not list(model_directory().rglob("*.onnx"))
     print(
-        "PASS installed 1.0.8: runtime imports, main window, About, Preferences, tray and clean shutdown"
+        "PASS installed 1.0.10: runtime imports, main window, About, Preferences, tray and clean shutdown"
     )
 finally:
     if process.poll() is None:

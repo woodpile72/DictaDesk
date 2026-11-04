@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """DictaDesk, an independent Cinnamon dictation application."""
 
-__version__ = "1.0.8"
+__version__ = "1.0.10"
 APP_ID = "io.github.woodpile72.DictaDesk"

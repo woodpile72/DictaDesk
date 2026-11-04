@@ -56,7 +56,7 @@ Publish 1.x versions as regular GitHub releases, marking the newest as Latest.
 
 From the reviewed release tag, use the Python 3.12 environment above::
 
-    git checkout v1.0.8
+    git checkout v1.0.10
     scripts/build-deb
 
 ``requirements.lock`` pins private runtime wheels and their SHA-256 hashes.
@@ -104,3 +104,8 @@ The 1.0.8 Preferences update passes 170 unit tests and isolated window checks
 at 1920x1080 and 1024x600, including nested dialogs, Escape, Save and Cancel.
 Large-text/high-contrast and continuous/button dictation checks also pass.
 Preferences has its own resizable window; the main window keeps its size.
+
+The 1.0.10 tray update passes 170 unit tests and isolated GTK, tray and startup
+checks. Preferences opens from the tray without mapping the main window,
+including at 1024x600 after background startup. Closing or saving Preferences
+preserves the main window’s visibility. Tray loss still restores access.

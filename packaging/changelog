@@ -1,3 +1,10 @@
+dictadesk (1.0.10) unstable; urgency=medium
+
+  * Open Preferences directly from the tray without showing the main window.
+  * Keep the main window hidden when opening the tray context menu.
+
+ -- Erick Woods <woodpile72@users.noreply.github.com>  Wed, 04 Nov 2026 23:23:39 +0000
+
 dictadesk (1.0.8) unstable; urgency=medium
 
   * Open Preferences in a larger, resizable window independent of the main window.

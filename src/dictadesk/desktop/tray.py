@@ -208,7 +208,7 @@ class Tray:
         return GLib.Variant(*values[prop])
 
     def item_call(self, connection, sender, path, interface, method, args, invocation):
-        if method in ("Activate", "SecondaryActivate", "ContextMenu"):
+        if method in ("Activate", "SecondaryActivate"):
             self.app.present_main()
         invocation.return_value(None)
 

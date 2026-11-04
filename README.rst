@@ -11,8 +11,8 @@ Speak into a text field using a keyboard shortcut, or record in DictaDesk and
 copy the result. Built with Python, GTK 4 and libadwaita, with a tray workflow
 for Cinnamon. Local transcription is the default.
 
-`Download DictaDesk 1.0.8 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.8/dictadesk_1.0.8_amd64.deb>`_
-· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.0.8>`_
+`Download DictaDesk 1.0.10 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.10/dictadesk_1.0.10_amd64.deb>`_
+· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.0.10>`_
 · `Report an issue <https://github.com/woodpile72/DictaDesk/issues>`_
 
 .. image:: media/screenshots/main-window.png
@@ -28,11 +28,11 @@ Install
 
 Developed and tested on **Linux Mint 22.3 Cinnamon, X11, x86-64 (amd64)**.
 Download the Debian package and
-`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.8/SHA256SUMS>`_
+`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.10/SHA256SUMS>`_
 into the same folder, then run::
 
     sha256sum --ignore-missing -c SHA256SUMS
-    sudo apt install ./dictadesk_1.0.8_amd64.deb
+    sudo apt install ./dictadesk_1.0.10_amd64.deb
 
 Check that the checksum reports ``OK``, then launch **DictaDesk** from your
 application menu. Open Preferences and download a local model before recording.

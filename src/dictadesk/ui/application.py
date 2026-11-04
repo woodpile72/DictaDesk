@@ -730,7 +730,6 @@ class Application(Adw.Application):
     def show_preferences(self):
         if self.session.busy:
             return
-        self.present_main()
         if self.preferences_dialog is None:
             self.preferences_dialog = PreferencesDialog(self)
         self.preferences_dialog.present()

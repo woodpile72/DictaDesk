@@ -28,7 +28,6 @@ class PreferencesDialog:
         self.dialog = Adw.Window(
             title="Preferences",
             application=app,
-            transient_for=app.window,
             modal=True,
             destroy_with_parent=True,
             resizable=True,
@@ -38,6 +37,8 @@ class PreferencesDialog:
         width, height = 760, 820
         surface = app.window.get_surface()
         monitor = app.window.get_display().get_monitor_at_surface(surface) if surface else None
+        if monitor is None:
+            monitor = app.window.get_display().get_monitors().get_item(0)
         if monitor:
             geometry = monitor.get_geometry()
             width = min(width, max(320, geometry.width - 64))
@@ -843,4 +844,8 @@ class PreferencesDialog:
         if self.app.keyboard:
             self.app.keyboard.clear()
         self.refresh()
+        # A hidden parent can be raised by the window manager along with its
+        # transient child. Tray Preferences should stand on its own instead.
+        parent = self.app.window if self.app.window.get_visible() else None
+        self.dialog.set_transient_for(parent)
         self.dialog.present()
