@@ -51,7 +51,7 @@ Packaging
 
 From the reviewed release tag, use the Python 3.12 environment above::
 
-    git checkout v1.0.0
+    git checkout v1.0.2
     scripts/build-deb
 
 ``requirements.lock`` pins private runtime wheels and their SHA-256 hashes.
