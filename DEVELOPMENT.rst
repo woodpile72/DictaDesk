@@ -25,6 +25,8 @@ Unit tests do not record audio, download models or call a paid API::
 Install xvfb, dbus-x11 and imagemagick for isolated desktop checks::
 
     scripts/test-ui .venv/bin/python tests/ui_acceptance.py
+    scripts/test-ui .venv/bin/python tests/preferences_window_acceptance.py
+    DICTADESK_TEST_SCREEN=1024x600x24 scripts/test-ui .venv/bin/python tests/preferences_window_acceptance.py
     scripts/test-ui .venv/bin/python tests/x11_acceptance.py
     scripts/test-ui .venv/bin/python tests/tray_acceptance.py
     scripts/test-ui .venv/bin/python tests/delivery_acceptance.py
@@ -49,9 +51,11 @@ not proof of live account permissions, billing or transcription quality.
 Packaging
 ---------
 
+Use even-numbered minor and patch releases; advance the patch by two for fixes.
+
 From the reviewed release tag, use the Python 3.12 environment above::
 
-    git checkout v1.0.6
+    git checkout v1.0.8
     scripts/build-deb
 
 ``requirements.lock`` pins private runtime wheels and their SHA-256 hashes.
@@ -94,3 +98,8 @@ provisional sentence endings. Existing saved short-pause settings are preserved.
 The update passes 165 unit tests, isolated GTK checks and generated-speech
 Parakeet tests in pause, live and in-window modes. Synthetic speech checks
 insertion and cleanup; it does not establish accuracy for every voice or language.
+
+The 1.0.8 Preferences update passes 170 unit tests and isolated window checks
+at 1920x1080 and 1024x600, including nested dialogs, Escape, Save and Cancel.
+Large-text/high-contrast and continuous/button dictation checks also pass.
+Preferences has its own resizable window; the main window keeps its size.

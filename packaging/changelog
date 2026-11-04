@@ -1,3 +1,10 @@
+dictadesk (1.0.8) unstable; urgency=medium
+
+  * Open Preferences in a larger, resizable window independent of the main window.
+  * Keep settings dialogs accessible and fit Preferences to smaller displays.
+
+ -- Erick Woods <woodpile72@users.noreply.github.com>  Wed, 04 Nov 2026 22:46:59 +0000
+
 dictadesk (1.0.6) unstable; urgency=medium
 
   * Finish Super+V dictation after 20 seconds of continuous silence.

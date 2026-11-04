@@ -40,7 +40,7 @@ def later(fn):
 
 
 def shot(name):
-    xid = GdkX11.X11Surface.get_xid(app.window.get_surface())
+    xid = GdkX11.X11Surface.get_xid(app.dialog_parent().get_surface())
     subprocess.run(["import", "-window", str(xid), str(out / f"{name}.png")], check=True)
 
 
@@ -145,6 +145,9 @@ def preferences():
     p = app.preferences_dialog
     assert "mode" not in p.controls
     assert p.dialog.get_visible()
+    assert p.dialog.get_resizable() and p.dialog.get_transient_for() is app.window
+    assert p.dialog.get_height() >= 800
+    assert app.window.get_height() < 500, "Preferences resized its parent"
     assert p.local_group.get_visible() and not p.remote_group.get_visible()
     assert p.download_button.get_sensitive()
     assert "640 MiB" in p.download_row.get_subtitle()
@@ -191,7 +194,7 @@ def model_guide():
 
     client = display.Display()
     client.set_input_focus(
-        GdkX11.X11Surface.get_xid(app.window.get_surface()), X.RevertToParent, X.CurrentTime
+        GdkX11.X11Surface.get_xid(p.dialog.get_surface()), X.RevertToParent, X.CurrentTime
     )
     escape = client.keysym_to_keycode(XK.string_to_keysym("Escape"))
     xtest.fake_input(client, X.KeyPress, escape)
@@ -320,6 +323,7 @@ def narrow():
     assert w.get_focus()
     shot("narrow-large-text")
     app.show_preferences()
+    app.preferences_dialog.dialog.set_default_size(360, 740)
     later(narrow_preferences)
 
 
@@ -327,7 +331,8 @@ def narrow_preferences():
     p = app.preferences_dialog
     assert p.dialog.get_width() <= app.window.get_width()
     assert (
-        p.dialog.get_child().measure(Gtk.Orientation.HORIZONTAL, -1)[0] <= p.dialog.get_width()
+        p.dialog.get_content().measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+        <= p.dialog.get_width()
     )
     shot("preferences-large-text")
     p.show_model_guide()
@@ -337,7 +342,7 @@ def narrow_preferences():
 def narrow_guide():
     p = app.preferences_dialog
     guide = p.model_guide
-    assert guide.get_width() <= app.window.get_width()
+    assert guide.get_width() <= p.dialog.get_width()
     assert guide.get_child().measure(Gtk.Orientation.HORIZONTAL, -1)[0] <= guide.get_width()
     shot("model-guide-large-text")
     guide.close()
@@ -348,7 +353,8 @@ def narrow_guide():
 def narrow_remote():
     p = app.preferences_dialog
     assert (
-        p.dialog.get_child().measure(Gtk.Orientation.HORIZONTAL, -1)[0] <= p.dialog.get_width()
+        p.dialog.get_content().measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+        <= p.dialog.get_width()
     )
     shot("preferences-remote-large-text")
     p.dialog.close()

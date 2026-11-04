@@ -45,7 +45,7 @@ def later(fn):
 
 
 def shot(name):
-    xid = GdkX11.X11Surface.get_xid(app.window.get_surface())
+    xid = GdkX11.X11Surface.get_xid(app.dialog_parent().get_surface())
     subprocess.run(["import", "-window", str(xid), str(out / (name + ".png"))], check=True)
 
 
@@ -73,7 +73,6 @@ def button():
     c = app.session
     c.phase, c.in_window = "idle", False
     app.window.hide_inline_transcript()
-    app.window.set_default_size(749, 820)
     app.refresh()
     app.show_preferences()
     later(local)

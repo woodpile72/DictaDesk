@@ -57,4 +57,4 @@ class MicrophoneDialog:
 
     def present(self):
         self.refresh()
-        self.dialog.present(self.app.window)
+        self.dialog.present(self.app.dialog_parent())

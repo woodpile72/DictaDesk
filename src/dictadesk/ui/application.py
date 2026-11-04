@@ -254,7 +254,9 @@ class Application(Adw.Application):
             )
         elif c.store.problem:
             self.notify_issue(
-                "Settings need recovery", "Open DictaDesk to back up and reset them.", "app.show"
+                "Settings need recovery",
+                "Open DictaDesk to back up and reset them.",
+                "app.show",
             )
         elif c.microphone_problem:
             self.notify_issue(
@@ -714,10 +716,15 @@ class Application(Adw.Application):
             f"Close this message, click the intended text field, then press {Chord.parse(self.session.preferences.paste_shortcut)}. This pastes uninserted text when available; otherwise it pastes the full last transcript. The app checks that the destination stays focused before sending Paste.",
         )
 
+    def dialog_parent(self):
+        if self.preferences_dialog and self.preferences_dialog.dialog.get_visible():
+            return self.preferences_dialog.dialog
+        return self.window
+
     def alert(self, heading, body, parent=None):
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response("close", "Close")
-        dialog.present(parent or self.window)
+        dialog.present(parent or self.dialog_parent())
         return dialog
 
     def show_preferences(self):
@@ -769,7 +776,7 @@ class Application(Adw.Application):
                 else None
             ),
         )
-        dialog.present(self.window)
+        dialog.present(self.dialog_parent())
 
     def remove_models(self, model=None):
         dialog = Adw.AlertDialog(
@@ -789,7 +796,7 @@ class Application(Adw.Application):
                 self.session.remove_models(model) if response == "remove" else None
             ),
         )
-        dialog.present(self.window)
+        dialog.present(self.dialog_parent())
 
     def repair_model(self, parent=None):
         dialog = Adw.AlertDialog(
@@ -805,7 +812,7 @@ class Application(Adw.Application):
                 self.session.load(repair=True) if response == "repair" else None
             ),
         )
-        dialog.present(self.window)
+        dialog.present(self.dialog_parent())
 
     def recover(self):
         try:

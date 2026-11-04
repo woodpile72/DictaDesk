@@ -25,10 +25,27 @@ from .window import text
 class PreferencesDialog:
     def __init__(self, app):
         self.app = app
-        self.dialog = Adw.Dialog(title="Preferences", content_width=540, content_height=660)
+        self.dialog = Adw.Window(
+            title="Preferences",
+            application=app,
+            transient_for=app.window,
+            modal=True,
+            destroy_with_parent=True,
+            resizable=True,
+        )
+        # Preferences need their own surface: an in-window dialog cannot grow
+        # beyond the deliberately compact dictation window.
+        width, height = 760, 820
+        surface = app.window.get_surface()
+        monitor = app.window.get_display().get_monitor_at_surface(surface) if surface else None
+        if monitor:
+            geometry = monitor.get_geometry()
+            width = min(width, max(320, geometry.width - 64))
+            height = min(height, max(300, geometry.height - 96))
+        self.dialog.set_default_size(width, height)
         self.dialog.set_size_request(320, 300)
         toolbar = Adw.ToolbarView()
-        self.dialog.set_child(toolbar)
+        self.dialog.set_content(toolbar)
         header = Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
         toolbar.add_top_bar(header)
         cancel = Gtk.Button(label="Cancel")
@@ -341,7 +358,10 @@ class PreferencesDialog:
         self.vocabulary.add(self.message)
         self.render_rules()
         self.backend_visibility()
-        self.dialog.connect("closed", self.closed)
+        self.dialog.connect("close-request", self.closed)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.key_pressed)
+        self.dialog.add_controller(keys)
         self.check_compute()
 
     def check_compute(self):
@@ -631,7 +651,7 @@ class PreferencesDialog:
 
         event.connect("key-pressed", capture)
         dialog.add_controller(event)
-        dialog.present(self.app.window)
+        dialog.present(self.dialog)
 
     def model_action(self, *_):
         if self.app.session.recognizer.loaded:
@@ -713,7 +733,7 @@ class PreferencesDialog:
                 self.message.set_text(str(exc))
 
         dialog.connect("response", apply)
-        dialog.present(self.app.window)
+        dialog.present(self.dialog)
 
     def save_clicked(self, *_):
         self.validation_problem = ""
@@ -806,6 +826,12 @@ class PreferencesDialog:
         self.attention.set_subtitle(detail)
         self.attention_group.set_visible(bool(detail))
 
+    def key_pressed(self, controller, keyval, keycode, state):
+        if keyval == Gdk.KEY_Escape and self.dialog.get_visible_dialog() is None:
+            self.dialog.close()
+            return True
+        return False
+
     def closed(self, *_):
         self.closed_flag = True
         self.compute_cancel.set()
@@ -817,4 +843,4 @@ class PreferencesDialog:
         if self.app.keyboard:
             self.app.keyboard.clear()
         self.refresh()
-        self.dialog.present(self.app.window)
+        self.dialog.present()
