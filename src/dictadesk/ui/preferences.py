@@ -137,6 +137,11 @@ class PreferencesDialog:
             "Transcription",
             [("local", "Local"), ("openai", "Remote")],
         )
+        timing = Adw.PreferencesGroup(
+            title="Dictation Timing",
+            description="Short pauses show text; longer pauses finalize sentence endings.",
+        )
+        page.add(timing)
         self.local_group = local = Adw.PreferencesGroup(
             title="Local Transcription",
             description="No account is needed. Download a model once, then dictate offline. Switching to Remote keeps downloads until you remove them.",
@@ -220,10 +225,10 @@ class PreferencesDialog:
         )
         local.add(live)
         self.controls["continuous_live"] = live
-        self.pause_rows = []
         for key, title, low, high, step, digits in [
-            ("pause_seconds", "Pause Length (Seconds)", 0.3, 5, 0.1, 1),
-            ("sentence_pause_seconds", "Sentence Pause (Seconds)", 1, 10, 0.1, 1),
+            ("pause_seconds", "Text Update Pause (Seconds)", 0.3, 5, 0.1, 1),
+            ("sentence_pause_seconds", "Sentence Ending Pause (Seconds)", 1, 10, 0.1, 1),
+            ("silence_stop_seconds", "Stop After Silence (Seconds)", 0, 600, 1, 0),
             ("silence_threshold", "Silence Threshold", 0.001, 0.2, 0.001, 3),
         ]:
             row = Adw.SpinRow.new_with_range(low, high, step)
@@ -231,11 +236,21 @@ class PreferencesDialog:
             if key == "pause_seconds":
                 row.set_subtitle("Show text after a short pause without ending the sentence.")
             elif key == "sentence_pause_seconds":
-                row.set_subtitle("Wait this long before finalizing the sentence ending.")
+                row.set_subtitle(
+                    "Default: 4 seconds. Lower this for shorter gaps between sentences; "
+                    "raise it for thinking pauses. Text Update Pause also sets the minimum wait."
+                )
+            elif key == "silence_stop_seconds":
+                row.set_subtitle(
+                    "Stops ordinary shortcut dictation after silence. Default: 20 seconds; "
+                    "0 means Off. Maximum recording length still applies."
+                )
+                row.set_numeric(False)
+                row.connect("output", self.format_silence_stop)
             row.set_digits(digits)
             row.set_value(self.values[key])
-            local.add(row)
-            self.pause_rows.append(row)
+            if key != "silence_threshold":
+                timing.add(row)
             self.controls[key] = row
         self.remote_group = remote = Adw.PreferencesGroup(
             title="Remote Transcription",
@@ -301,10 +316,9 @@ class PreferencesDialog:
         page.add(shortcuts)
         desktop = Adw.PreferencesGroup(title="Recording and Desktop")
         page.add(desktop)
-        for row in self.pause_rows:
-            local.remove(row)
-            row.set_subtitle("Used for continuous dictation and local previews.")
-            desktop.add(row)
+        threshold = self.controls["silence_threshold"]
+        threshold.set_subtitle("Audio level below which a pause counts as silence.")
+        desktop.add(threshold)
         self.spin(desktop, "max_seconds", "Maximum Recording (Seconds)", 1, 600)
         self.spin(
             desktop,
@@ -364,6 +378,13 @@ class PreferencesDialog:
         keys.connect("key-pressed", self.key_pressed)
         self.dialog.add_controller(keys)
         self.check_compute()
+
+    @staticmethod
+    def format_silence_stop(row):
+        if row.get_value() == 0:
+            row.set_text("Off")
+            return True
+        return False
 
     def check_compute(self):
         def check():

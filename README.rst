@@ -11,15 +11,15 @@ Speak into a text field using a keyboard shortcut, or record in DictaDesk and
 copy the result. Built with Python, GTK 4 and libadwaita, with a tray workflow
 for Cinnamon. Local transcription is the default.
 
-`Download DictaDesk 1.0.10 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.10/dictadesk_1.0.10_amd64.deb>`_
-· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.0.10>`_
+`Download DictaDesk 1.0.12 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.12/dictadesk_1.0.12_amd64.deb>`_
+· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.0.12>`_
 · `Report an issue <https://github.com/woodpile72/DictaDesk/issues>`_
 
 .. image:: media/screenshots/main-window.png
    :alt: DictaDesk's main window with dictation instructions and Start Recording
    :width: 880
 
-Screenshots show the actual DictaDesk 1.0.8 interface in an isolated demonstration
+Screenshots show the actual DictaDesk 1.0.12 interface in an isolated demonstration
 profile, with simulated readiness and sample text. No personal transcripts or
 credentials are shown.
 
@@ -28,11 +28,11 @@ Install
 
 Developed and tested on **Linux Mint 22.3 Cinnamon, X11, x86-64 (amd64)**.
 Download the Debian package and
-`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.10/SHA256SUMS>`_
+`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.12/SHA256SUMS>`_
 into the same folder, then run::
 
     sha256sum --ignore-missing -c SHA256SUMS
-    sudo apt install ./dictadesk_1.0.10_amd64.deb
+    sudo apt install ./dictadesk_1.0.12_amd64.deb
 
 Check that the checksum reports ``OK``, then launch **DictaDesk** from your
 application menu. Open Preferences and download a local model before recording.
@@ -47,17 +47,21 @@ Start dictating
    microphone test helps check input and recognition.
 2. Click a text field in another application. Press **Super+V**, speak, then
    press **Super+V** again or **Escape** to finish. Text is inserted at pauses.
-   Recording also stops after **20 seconds of continuous silence**. Speaking
+   By default, recording stops after **20 seconds of continuous silence**. Speaking
    again before then resets the timer.
 3. For longer dictation, **Super+Shift+V** starts continuous mode with stable
    text insertion while speaking. Press it again or **Escape** to finish.
 
 Short pauses show text without finalizing the sentence ending. By default,
-DictaDesk waits 4.5 seconds of silence to finalize it; stopping also finalizes it.
-The 20-second auto-stop applies only to the ordinary dictation shortcut;
+DictaDesk waits 4 seconds of silence to finalize it; stopping also finalizes it.
+Silence-based auto-stop applies only to the ordinary dictation shortcut;
 continuous mode and button recordings retain their existing stop controls.
-Both pause lengths are adjustable in Preferences. Explicit spoken punctuation
-is respected when that option is enabled. Recognition can still infer punctuation
+All three timings are adjustable under **Preferences → Dictation Timing**.
+Lower **Sentence Ending Pause** for shorter gaps between sentences, or raise it
+to allow longer thinking pauses. **Stop After Silence** accepts 1–600 seconds;
+set it to **0 (Off)** to keep recording through quiet gaps. The separate
+maximum recording length still applies. Existing saved values are preserved.
+Explicit spoken punctuation is respected when that option is enabled. Recognition can still infer punctuation
 within a phrase. A few trailing words stay provisional so recognition can revise
 them when you continue. In-window drafts can change freely; text already inserted
 into another application is never automatically overwritten.
@@ -137,7 +141,7 @@ Source uses a ``src/dictadesk`` layout. Build and test instructions are in
 model weights, dependency wheels and local caches are not part of this repository.
 
 .. image:: media/screenshots/about.png
-   :alt: DictaDesk About screen with its microphone icon and version 1.0.8
+   :alt: DictaDesk About screen with its microphone icon and version 1.0.12
    :width: 880
 
 License and credits

@@ -42,7 +42,8 @@ class Preferences:
     max_seconds: int = 180
     preview_pauses: bool = False
     pause_seconds: float = 1.0
-    sentence_pause_seconds: float = 4.5
+    sentence_pause_seconds: float = 4.0
+    silence_stop_seconds: int = 20
     silence_threshold: float = 0.015
     auto_paste: bool = True
     symbolic: bool = True
@@ -101,6 +102,7 @@ class Preferences:
         for name, low, high in (
             ("idle_seconds", 0, 86400),
             ("max_seconds", 1, 600),
+            ("silence_stop_seconds", 0, 600),
             ("continuous_minutes", 1, 240),
         ):
             value = getattr(self, name)

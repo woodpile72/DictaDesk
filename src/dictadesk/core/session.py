@@ -525,7 +525,7 @@ class Session:
         if pause_mode:
             capture.limit = prefs.max_seconds
             if not in_window:
-                capture.silence_stop_seconds = 20
+                capture.silence_stop_seconds = prefs.silence_stop_seconds
         self.changed()
         first = True
         active_segment = None

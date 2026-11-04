@@ -144,6 +144,9 @@ def preferences():
     assert "CPU runtime" in app.preferences_dialog.compute_status.get_subtitle()
     p = app.preferences_dialog
     assert "mode" not in p.controls
+    assert p.controls["sentence_pause_seconds"].get_value() == 4.0
+    assert "thinking pauses" in p.controls["sentence_pause_seconds"].get_subtitle()
+    assert "without ending the sentence" in p.controls["pause_seconds"].get_subtitle()
     assert p.dialog.get_visible()
     assert p.dialog.get_resizable() and p.dialog.get_transient_for() is app.window
     assert p.dialog.get_height() >= 800

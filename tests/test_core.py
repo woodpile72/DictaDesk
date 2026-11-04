@@ -41,12 +41,26 @@ class StorageTests(unittest.TestCase):
         self.path.write_text(json.dumps({"schema": 1, "preferences": {"pause_seconds": 0.8}}))
         prefs = self.store.read()
         self.assertEqual(prefs.pause_seconds, 0.8)
-        self.assertEqual(prefs.sentence_pause_seconds, 4.5)
+        self.assertEqual(prefs.sentence_pause_seconds, 4.0)
         prefs.sentence_pause_seconds = 5.2
         self.store.save(prefs)
         self.assertEqual(self.store.read().sentence_pause_seconds, 5.2)
         with self.assertRaises(ValueError):
             replace(prefs, sentence_pause_seconds=0.2).validate()
+
+    def test_silence_stop_defaults_and_custom_values_survive_save(self):
+        self.path.write_text(
+            json.dumps({"schema": 1, "preferences": {"sentence_pause_seconds": 4.5}})
+        )
+        prefs = self.store.read()
+        self.assertEqual(prefs.silence_stop_seconds, 20)
+        self.assertEqual(prefs.sentence_pause_seconds, 4.5)
+        for value in (0, 3, 45, 600):
+            self.store.save(replace(prefs, silence_stop_seconds=value))
+            self.assertEqual(self.store.read().silence_stop_seconds, value)
+        for value in (-1, 601, True, 1.5):
+            with self.assertRaises(ValueError):
+                replace(prefs, silence_stop_seconds=value).validate()
 
     def test_legacy_remote_models_upgrade_without_resetting_other_preferences(self):
         from dataclasses import asdict

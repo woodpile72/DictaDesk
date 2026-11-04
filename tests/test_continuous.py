@@ -60,6 +60,17 @@ class CaptureBufferTests(unittest.TestCase):
             self.assertTrue(updates[-1].final)
             self.assertTrue(updates[-1].audio.startswith(VOICE * 2))
 
+    def test_custom_silence_stop_threshold_and_off(self):
+        for seconds, stopped in ((2.9, False), (3, True)):
+            capture = self.capture_buffers(
+                [VOICE] * 2 + [SILENCE] * round(seconds * 10), silence_stop_seconds=3
+            )
+            self.assertEqual(capture.silence_stopped, stopped)
+        capture = self.capture_buffers(
+            [VOICE] * 2 + [SILENCE * 10] * 30, silence_stop_seconds=0
+        )
+        self.assertFalse(capture.silence_stopped)
+
     def test_resumed_speech_resets_auto_stop_and_continuous_mode_stays_open(self):
         capture = self.capture_buffers(
             [VOICE] * 2 + [SILENCE * 10] * 19 + [VOICE] * 2 + [SILENCE * 10] * 19,
@@ -100,7 +111,7 @@ class CaptureBufferTests(unittest.TestCase):
 
     def test_thinking_pause_preserves_audio_until_sentence_pause(self):
         capture = self.capture_buffers(
-            [VOICE] * 2 + [SILENCE] * 10 + [VOICE] * 2 + [SILENCE] * 45
+            [VOICE] * 2 + [SILENCE] * 10 + [VOICE] * 2 + [SILENCE] * 40
         )
         updates = []
         while capture.has_updates():
@@ -109,7 +120,7 @@ class CaptureBufferTests(unittest.TestCase):
         self.assertEqual([u.segment for u in updates], [0, 0, 0])
         self.assertTrue(updates[0].paused)
         self.assertEqual(updates[0].audio, VOICE * 2 + SILENCE * 10)
-        self.assertEqual(updates[-1].audio, VOICE * 2 + SILENCE * 10 + VOICE * 2 + SILENCE * 45)
+        self.assertEqual(updates[-1].audio, VOICE * 2 + SILENCE * 10 + VOICE * 2 + SILENCE * 40)
         self.assertTrue(updates[-1].sentence_end)
 
     def test_stop_flushes_before_sentence_timeout(self):
@@ -294,8 +305,9 @@ class ContinuousSessionTests(unittest.TestCase):
         self.assertEqual(self.session.notice, "")
 
     def test_auto_stop_only_for_pause_shortcut_mode(self):
+        self.session.preferences.silence_stop_seconds = 7
         for pause_mode, in_window, expected in (
-            (True, False, 20),
+            (True, False, 7),
             (False, False, 0),
             (True, True, 0),
         ):
@@ -306,6 +318,13 @@ class ContinuousSessionTests(unittest.TestCase):
                 )
                 self.assertEqual(self.session.capture.silence_stop_seconds, expected)
                 self.drain()
+
+    def test_auto_stop_can_be_disabled_for_pause_shortcut_mode(self):
+        self.session.preferences.silence_stop_seconds = 0
+        self.session.record_continuous(target=object(), pause_mode=True)
+        self.assertEqual(self.session.capture.silence_stop_seconds, 0)
+        self.drain()
+        self.assertEqual(self.events, ["started", "stopped", "completed"])
 
     def test_auto_stop_finishes_and_notifies_without_duplicate_insertion(self):
         closed = []

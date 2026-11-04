@@ -1,3 +1,11 @@
+dictadesk (1.0.12) unstable; urgency=medium
+
+  * Group text, sentence and recording-stop pauses under Dictation Timing.
+  * Default sentence endings to four seconds while preserving saved values.
+  * Make shortcut silence stopping configurable, including Off.
+
+ -- Erick Woods <woodpile72@users.noreply.github.com>  Wed, 04 Nov 2026 23:34:24 +0000
+
 dictadesk (1.0.10) unstable; urgency=medium
 
   * Open Preferences directly from the tray without showing the main window.

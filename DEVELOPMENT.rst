@@ -56,7 +56,7 @@ Publish 1.x versions as regular GitHub releases, marking the newest as Latest.
 
 From the reviewed release tag, use the Python 3.12 environment above::
 
-    git checkout v1.0.10
+    git checkout v1.0.12
     scripts/build-deb
 
 ``requirements.lock`` pins private runtime wheels and their SHA-256 hashes.
@@ -109,3 +109,9 @@ The 1.0.10 tray update passes 170 unit tests and isolated GTK, tray and startup
 checks. Preferences opens from the tray without mapping the main window,
 including at 1024x600 after background startup. Closing or saving Preferences
 preserves the main window’s visibility. Tray loss still restores access.
+
+The 1.0.12 timing update passes 173 unit tests, including custom silence-stop
+durations, Off, old-settings defaults and saved-value preservation. Isolated GTK
+checks cover numeric entry, Save/Cancel, narrow/large-text/high-contrast layouts
+and continuous text insertion. Sentence-ending defaults are now four seconds;
+explicit saved values remain unchanged.

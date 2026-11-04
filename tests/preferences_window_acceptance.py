@@ -93,6 +93,9 @@ def edit_preferences():
     p = app.preferences_dialog
     p.controls["backend"][0].set_selected(1)
     p.api_key.set_text("unsaved-fixture")
+    p.controls["sentence_pause_seconds"].set_value(2)
+    p.controls["silence_stop_seconds"].set_value(0)
+    assert p.controls["silence_stop_seconds"].get_text() == "Off"
     later(escape)
 
 
@@ -118,11 +121,23 @@ def after_escape():
     app.show_preferences()
     p = app.preferences_dialog
     assert p.controls["backend"][0].get_selected() == 0
+    assert p.controls["sentence_pause_seconds"].get_value() == 4
+    assert p.controls["silence_stop_seconds"].get_value() == 20
+    p.controls["sentence_pause_seconds"].set_value(2)
+    p.controls["silence_stop_seconds"].set_value(0)
+    assert p.controls["silence_stop_seconds"].get_text() == "Off"
+    p.controls["silence_stop_seconds"].set_value(30)
+    assert p.controls["silence_stop_seconds"].get_text() == "30"
+    p.controls["silence_stop_seconds"].set_text("0")
+    p.controls["silence_stop_seconds"].update()
+    assert p.controls["silence_stop_seconds"].get_value() == 0
+    assert p.controls["silence_stop_seconds"].get_text() == "Off"
 
     # Exercise Save through its existing completion callback without touching
     # login startup or credentials in this presentation-only check.
     def save(prefs, key, close):
         assert prefs.backend == "local" and not key
+        assert prefs.sentence_pause_seconds == 2 and prefs.silence_stop_seconds == 0
         close()
 
     with patch.object(app, "save_preferences", side_effect=save) as saved:
