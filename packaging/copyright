@@ -1,0 +1,20 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: DictaDesk
+Source: https://github.com/woodpile72/DictaDesk
+
+Files: *
+Copyright: 2026 Erick Woods
+License: GPL-3.0-only
+ See /usr/share/doc/dictadesk/LICENSE for the complete license.
+
+Files: dictadesk-iconset/* src/dictadesk/resources/io.github.woodpile72.DictaDesk.svg
+Copyright: 2026 Erick Woods
+License: MIT
+ See /usr/share/doc/dictadesk/NOTICE for the complete artwork license.
+
+Files: /usr/lib/dictadesk/vendor/*
+Copyright: Respective upstream authors; see the preserved distribution metadata
+License: Various
+ Bundled wheels retain their own licenses and copyright notices in the vendor
+ tree. Exact versions and hashes are in /usr/share/doc/dictadesk/requirements.lock.
+ See /usr/share/doc/dictadesk/NOTICE and licenses/ for additional notices.

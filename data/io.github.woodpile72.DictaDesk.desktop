@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=DictaDesk
+Comment=Desktop Dictation for Linux
+Exec=dictadesk
+Icon=io.github.woodpile72.DictaDesk
+Terminal=false
+Categories=Utility;Accessibility;
+StartupNotify=true
+StartupWMClass=io.github.woodpile72.DictaDesk
+Keywords=voice;speech;dictation;microphone;
+X-GNOME-UsesNotifications=true

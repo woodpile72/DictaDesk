@@ -1,0 +1,704 @@
+{
+  "model": "moonshine-tiny",
+  "language": null,
+  "cpu": "x86_64",
+  "logical_cpus": 12,
+  "python": "3.12.3",
+  "versions": {
+    "numpy": "2.5.4",
+    "onnxruntime": "1.31.1",
+    "onnx-asr": "0.12.0",
+    "huggingface-hub": "2.4.0"
+  },
+  "cpu_model": "AMD Ryzen 5 7600X 6-Core Processor",
+  "load_s": 0.18156610429286957,
+  "model_bytes": 43943830,
+  "files": {
+    "decoder_model_merged.ort": "cf524c4862d36e9e5ab032eddc73637efd822d70e868ac575cf1a46e1e4708a0",
+    "encoder_model.ort": "94e90a4654fc45cdfedb77c4c08e1739f48862998e58fada384b25118134f221",
+    "tokenizer.bin": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"
+  },
+  "cases": [
+    {
+      "name": "ordinary",
+      "reference": "Please send the revised document tomorrow morning. I will check the spelling before the meeting.",
+      "source": "eSpeak NG en-us",
+      "sha256": "8d9aac1eccce11c249b758085fdb2902a42e728a52bbc45a46e09283e749961b",
+      "duration_s": 5.0185,
+      "runs": [
+        {
+          "seconds": 0.11663223523646593,
+          "text": "Please send the revised document to my own morning. I will check the spelling before the meeting.",
+          "word_errors": 3,
+          "reference_words": 15,
+          "wer": 0.2
+        },
+        {
+          "seconds": 0.10555145796388388,
+          "text": "Please send the revised document to my own morning. I will check the spelling before the meeting.",
+          "word_errors": 3,
+          "reference_words": 15,
+          "wer": 0.2
+        },
+        {
+          "seconds": 0.10722637828439474,
+          "text": "Please send the revised document to my own morning. I will check the spelling before the meeting.",
+          "word_errors": 3,
+          "reference_words": 15,
+          "wer": 0.2
+        }
+      ],
+      "median_s": 0.10722637828439474
+    },
+    {
+      "name": "technical",
+      "reference": "Open the terminal and install the package. The microphone uses a local model without sending audio to a remote server.",
+      "source": "eSpeak NG en-us",
+      "sha256": "3f5b1158e2834de1c2f9e3a3f766af26907c8e48dedd07723f5c3fa57ef4a279",
+      "duration_s": 6.33025,
+      "runs": [
+        {
+          "seconds": 0.14220291655510664,
+          "text": "Open the terminal and install the package. The microphone uses a local model without sending audio to remote server.",
+          "word_errors": 1,
+          "reference_words": 20,
+          "wer": 0.05
+        },
+        {
+          "seconds": 0.14168685860931873,
+          "text": "Open the terminal and install the package. The microphone uses a local model without sending audio to remote server.",
+          "word_errors": 1,
+          "reference_words": 20,
+          "wer": 0.05
+        },
+        {
+          "seconds": 0.13452105969190598,
+          "text": "Open the terminal and install the package. The microphone uses a local model without sending audio to remote server.",
+          "word_errors": 1,
+          "reference_words": 20,
+          "wer": 0.05
+        }
+      ],
+      "median_s": 0.14168685860931873
+    },
+    {
+      "name": "commands",
+      "reference": "Hello comma this is a test period New paragraph Open parenthesis another sentence close parenthesis dot dot dot",
+      "source": "eSpeak NG en-us",
+      "sha256": "5a38d272957c326a528a7c9e66441fffd36ceceec26fe7719976b393eedeafa2",
+      "duration_s": 6.0465,
+      "runs": [
+        {
+          "seconds": 0.14412457775324583,
+          "text": "The low-comet this is a test period. The upper and rough open prevents the system under sentence. Close the rents as you start dot dot dot.",
+          "word_errors": 16,
+          "reference_words": 18,
+          "wer": 0.8888888888888888
+        },
+        {
+          "seconds": 0.15442832373082638,
+          "text": "The low-comet this is a test period. The upper and rough open prevents the system under sentence. Close the rents as you start dot dot dot.",
+          "word_errors": 16,
+          "reference_words": 18,
+          "wer": 0.8888888888888888
+        },
+        {
+          "seconds": 0.16098276246339083,
+          "text": "The low-comet this is a test period. The upper and rough open prevents the system under sentence. Close the rents as you start dot dot dot.",
+          "word_errors": 16,
+          "reference_words": 18,
+          "wer": 0.8888888888888888
+        }
+      ],
+      "median_s": 0.15442832373082638
+    },
+    {
+      "name": "jfk",
+      "reference": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country",
+      "source": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/4da27c41cebadb3cbbcd2563e9c7cbc8d84bdcad/samples/jfk.wav",
+      "sha256": "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e",
+      "duration_s": 11.0,
+      "runs": [
+        {
+          "seconds": 0.18700589332729578,
+          "text": "And so my fellow Americans. As not. What your country can do for you? Ask what you can do for your country.",
+          "word_errors": 1,
+          "reference_words": 22,
+          "wer": 0.045454545454545456
+        },
+        {
+          "seconds": 0.2118132458999753,
+          "text": "And so my fellow Americans. As not. What your country can do for you? Ask what you can do for your country.",
+          "word_errors": 1,
+          "reference_words": 22,
+          "wer": 0.045454545454545456
+        },
+        {
+          "seconds": 0.207112118601799,
+          "text": "And so my fellow Americans. As not. What your country can do for you? Ask what you can do for your country.",
+          "word_errors": 1,
+          "reference_words": 22,
+          "wer": 0.045454545454545456
+        }
+      ],
+      "median_s": 0.207112118601799
+    },
+    {
+      "name": "ordinary-noise",
+      "reference": "Please send the revised document tomorrow morning. I will check the spelling before the meeting.",
+      "source": "ordinary + fixed 20 dB white noise",
+      "sha256": "c11bc8072125141a189810838a46ebc5c7f8404615da829e910e7ddbcc07dcb6",
+      "duration_s": 5.0185,
+      "runs": [
+        {
+          "seconds": 0.1047346880659461,
+          "text": "Please send the reminds document to my remote boarding. I will check the spelling before the meeting.",
+          "word_errors": 5,
+          "reference_words": 15,
+          "wer": 0.3333333333333333
+        },
+        {
+          "seconds": 0.11735063511878252,
+          "text": "Please send the reminds document to my remote boarding. I will check the spelling before the meeting.",
+          "word_errors": 5,
+          "reference_words": 15,
+          "wer": 0.3333333333333333
+        },
+        {
+          "seconds": 0.11603053472936153,
+          "text": "Please send the reminds document to my remote boarding. I will check the spelling before the meeting.",
+          "word_errors": 5,
+          "reference_words": 15,
+          "wer": 0.3333333333333333
+        }
+      ],
+      "median_s": 0.11603053472936153
+    },
+    {
+      "name": "silence",
+      "reference": "",
+      "source": "digital silence",
+      "sha256": "262d1f34f300560a4c82ba8127ddea9e1d72946f187fdbd3e8f70ee096077aec",
+      "duration_s": 5.0,
+      "runs": [
+        {
+          "seconds": 0.035323950462043285,
+          "text": "You",
+          "word_errors": 1,
+          "reference_words": 0,
+          "wer": null
+        },
+        {
+          "seconds": 0.030924479477107525,
+          "text": "",
+          "word_errors": 0,
+          "reference_words": 0,
+          "wer": null
+        },
+        {
+          "seconds": 0.025187733583152294,
+          "text": "",
+          "word_errors": 0,
+          "reference_words": 0,
+          "wer": null
+        }
+      ],
+      "median_s": 0.030924479477107525
+    },
+    {
+      "name": "librispeech-1272-128104-0000",
+      "reference": "MISTER QUILTER IS THE APOSTLE OF THE MIDDLE CLASSES AND WE ARE GLAD TO WELCOME HIS GOSPEL",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "12f8eae82f20ce6725b5afbb04805a0d9f4e1b6e3d35598c545882c3fdb878cf",
+      "duration_s": 5.855,
+      "runs": [
+        {
+          "seconds": 0.1161162257194519,
+          "text": "Mr. Quilter is the apostle of the middle classes, and we are glad to welcome his gospel.",
+          "word_errors": 1,
+          "reference_words": 17,
+          "wer": 0.058823529411764705
+        },
+        {
+          "seconds": 0.1152596352621913,
+          "text": "Mr. Quilter is the apostle of the middle classes, and we are glad to welcome his gospel.",
+          "word_errors": 1,
+          "reference_words": 17,
+          "wer": 0.058823529411764705
+        },
+        {
+          "seconds": 0.12038047425448895,
+          "text": "Mr. Quilter is the apostle of the middle classes, and we are glad to welcome his gospel.",
+          "word_errors": 1,
+          "reference_words": 17,
+          "wer": 0.058823529411764705
+        }
+      ],
+      "median_s": 0.1161162257194519
+    },
+    {
+      "name": "librispeech-1272-128104-0006",
+      "reference": "ON THE GENERAL PRINCIPLES OF ART MISTER QUILTER WRITES WITH EQUAL LUCIDITY",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "dd882c27816bca758a4a4243deff5272ebc2fb3399fd6caacef1e7e369eecf18",
+      "duration_s": 5.64,
+      "runs": [
+        {
+          "seconds": 0.12135458458214998,
+          "text": "A legitinal principles of art and Mr. Quilter writes with equal lucidity.",
+          "word_errors": 5,
+          "reference_words": 12,
+          "wer": 0.4166666666666667
+        },
+        {
+          "seconds": 0.11957921367138624,
+          "text": "A legitinal principles of art and Mr. Quilter writes with equal lucidity.",
+          "word_errors": 5,
+          "reference_words": 12,
+          "wer": 0.4166666666666667
+        },
+        {
+          "seconds": 0.12173162307590246,
+          "text": "A legitinal principles of art and Mr. Quilter writes with equal lucidity.",
+          "word_errors": 5,
+          "reference_words": 12,
+          "wer": 0.4166666666666667
+        }
+      ],
+      "median_s": 0.12135458458214998
+    },
+    {
+      "name": "librispeech-1272-128104-0012",
+      "reference": "ONLY UNFORTUNATELY HIS OWN WORK NEVER DOES GET GOOD",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "eecfff7776e13850e7e9c3b656b4ade4d591c48c1aa213a3608ffba7241829f5",
+      "duration_s": 5.38,
+      "runs": [
+        {
+          "seconds": 0.09821825940161943,
+          "text": "Only unfortunately, his own work never does get good.",
+          "word_errors": 0,
+          "reference_words": 9,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.09175975248217583,
+          "text": "Only, unfortunately, his own work never does get good.",
+          "word_errors": 0,
+          "reference_words": 9,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.0931699126958847,
+          "text": "Only, unfortunately, his own work never does get good.",
+          "word_errors": 0,
+          "reference_words": 9,
+          "wer": 0.0
+        }
+      ],
+      "median_s": 0.0931699126958847
+    },
+    {
+      "name": "librispeech-1272-135031-0003",
+      "reference": "THE LITTLE GIRL HAD BEEN ASLEEP BUT SHE HEARD THE RAPS AND OPENED THE DOOR",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "c680f19f0e037cef30912fbbd46543715b1204c2f73757cc305229ad179a7675",
+      "duration_s": 4.755,
+      "runs": [
+        {
+          "seconds": 0.12210870254784822,
+          "text": "The little girl had been asleep. But she heard the raps and opened the door.",
+          "word_errors": 0,
+          "reference_words": 15,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.10131304059177637,
+          "text": "The little girl had been asleep. But she heard the raps and opened the door.",
+          "word_errors": 0,
+          "reference_words": 15,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.10791624709963799,
+          "text": "The little girl had been asleep. But she heard the raps and opened the door.",
+          "word_errors": 0,
+          "reference_words": 15,
+          "wer": 0.0
+        }
+      ],
+      "median_s": 0.10791624709963799
+    },
+    {
+      "name": "librispeech-1272-135031-0009",
+      "reference": "HE DOESN'T WORK AT ALL",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "32f79233f4f81d22b4fe17227edf99826aedce274f7f27264f7f8a03adf00d62",
+      "duration_s": 1.91,
+      "runs": [
+        {
+          "seconds": 0.05034838430583477,
+          "text": "He doesn't work at all.",
+          "word_errors": 0,
+          "reference_words": 6,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.05834638234227896,
+          "text": "He doesn't work at all.",
+          "word_errors": 0,
+          "reference_words": 6,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.05148965399712324,
+          "text": "He doesn't work at all.",
+          "word_errors": 0,
+          "reference_words": 6,
+          "wer": 0.0
+        }
+      ],
+      "median_s": 0.05148965399712324
+    },
+    {
+      "name": "librispeech-1272-135031-0015",
+      "reference": "THE METAL FOREST IS IN THE GREAT DOMED CAVERN THE LARGEST IN ALL OUR DOMINIONS REPLIED KALIKO",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "db66cd2e27a50796f7bceb79e7e86bc84fbe4f21858fe2e11df908f148215763",
+      "duration_s": 7.375,
+      "runs": [
+        {
+          "seconds": 0.16745942924171686,
+          "text": "The middle forest is in the great domed cavern. The largest and all-or-demonions, replied Calico.",
+          "word_errors": 5,
+          "reference_words": 17,
+          "wer": 0.29411764705882354
+        },
+        {
+          "seconds": 0.1423262869939208,
+          "text": "The middle forest is in the great domed cavern, the largest in all our dominions, replied Calico.",
+          "word_errors": 2,
+          "reference_words": 17,
+          "wer": 0.11764705882352941
+        },
+        {
+          "seconds": 0.14515453577041626,
+          "text": "The middle forest is in the great domed cavern, the largest in all our dominions, replied Calico.",
+          "word_errors": 2,
+          "reference_words": 17,
+          "wer": 0.11764705882352941
+        }
+      ],
+      "median_s": 0.14515453577041626
+    },
+    {
+      "name": "librispeech-1272-135031-0021",
+      "reference": "I DO NOT KNOW CONFESSED SHAGGY",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "dc0945cf65df08e499a8da14bab5984a5dedf1a27b57c7f2de5cb3f06377708a",
+      "duration_s": 2.595,
+      "runs": [
+        {
+          "seconds": 0.06169314216822386,
+          "text": "I do not know confessed Shaggy.",
+          "word_errors": 0,
+          "reference_words": 6,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.08483915403485298,
+          "text": "It is I do not know confessed Shaggy.",
+          "word_errors": 2,
+          "reference_words": 6,
+          "wer": 0.3333333333333333
+        },
+        {
+          "seconds": 0.07950834557414055,
+          "text": "It is I do not know confessed Shaggy.",
+          "word_errors": 2,
+          "reference_words": 6,
+          "wer": 0.3333333333333333
+        }
+      ],
+      "median_s": 0.07950834557414055
+    },
+    {
+      "name": "librispeech-1272-141231-0002",
+      "reference": "THE CUT ON HIS CHEST STILL DRIPPING BLOOD THE ACHE OF HIS OVERSTRAINED EYES EVEN THE SOARING ARENA AROUND HIM WITH THE THOUSANDS OF SPECTATORS WERE TRIVIALITIES NOT WORTH THINKING ABOUT",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "39165095f87fcc4372c3bec3a586e1acebf923f54a13218c48bcf627726ebcaf",
+      "duration_s": 13.335,
+      "runs": [
+        {
+          "seconds": 0.2775751668959856,
+          "text": "You can The cut on his chest still dripping blood. To ache of his overstringed eyes. Even to soaring arena around him with the thousands of spectators. Retroveialities not worth thinking about.",
+          "word_errors": 7,
+          "reference_words": 31,
+          "wer": 0.22580645161290322
+        },
+        {
+          "seconds": 0.2924410020932555,
+          "text": "The cut on his chest still dripping blood. To ache of his overstringed eyes. Even to soaring arena around him with the thousands of spectators. Retroveialities not worth thinking about.",
+          "word_errors": 5,
+          "reference_words": 31,
+          "wer": 0.16129032258064516
+        },
+        {
+          "seconds": 0.2723067980259657,
+          "text": "The cut on his chest still dripping blood. To ache of his overstringed eyes. Even to soaring arena around him with the thousands of spectators. Retroveialities not worth thinking about.",
+          "word_errors": 5,
+          "reference_words": 31,
+          "wer": 0.16129032258064516
+        }
+      ],
+      "median_s": 0.2775751668959856
+    },
+    {
+      "name": "librispeech-1272-141231-0008",
+      "reference": "HE WAS IN REVERIE SLIDING ALONG THE BORDERS OF CONSCIOUSNESS",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "4dda61d09e31514974fa1a68600ef11ba3e8f49f2c1efb1cc9a2c3f022a519eb",
+      "duration_s": 4.595,
+      "runs": [
+        {
+          "seconds": 0.09037965349853039,
+          "text": "He was in reverie, sliding along the borders of consciousness.",
+          "word_errors": 0,
+          "reference_words": 10,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.0971172209829092,
+          "text": "He was in reverie, sliding along the borders of consciousness.",
+          "word_errors": 0,
+          "reference_words": 10,
+          "wer": 0.0
+        },
+        {
+          "seconds": 0.09447243064641953,
+          "text": "He was in reverie, sliding along the borders of consciousness.",
+          "word_errors": 0,
+          "reference_words": 10,
+          "wer": 0.0
+        }
+      ],
+      "median_s": 0.09447243064641953
+    },
+    {
+      "name": "librispeech-1272-141231-0014",
+      "reference": "HE MUST HAVE DRAWN HIS GUN BECAUSE THE INTRUDER SAID QUICKLY PUT THAT AWAY YOU'RE BEING A FOOL OUT",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "b4d971631ae56f63129a75756dcf2846e9d324fd699067597631465a3dd8c54b",
+      "duration_s": 7.305,
+      "runs": [
+        {
+          "seconds": 0.1571875922381878,
+          "text": "He must have drawn his gun, because the intruder said quickly. But that away, you're being a fool. Out,",
+          "word_errors": 1,
+          "reference_words": 20,
+          "wer": 0.05
+        },
+        {
+          "seconds": 0.18181827571243048,
+          "text": "You He must have drawn his guns because the intruder said quickly. But that away, you've been before. Out,",
+          "word_errors": 7,
+          "reference_words": 20,
+          "wer": 0.35
+        },
+        {
+          "seconds": 0.1893911538645625,
+          "text": "You He must have drawn his guns because the intruder said quickly. But that away, you've been before. Out,",
+          "word_errors": 7,
+          "reference_words": 20,
+          "wer": 0.35
+        }
+      ],
+      "median_s": 0.18181827571243048
+    },
+    {
+      "name": "librispeech-1272-141231-0020",
+      "reference": "JUST THRUST AND PARRY AND VICTORY TO THE STRONGER",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "845ba5932af4ea502fa13c228aba5d3d9fefcb2de3329ab5e8d2fb3b80810c50",
+      "duration_s": 4.32,
+      "runs": [
+        {
+          "seconds": 0.10482959821820259,
+          "text": "You Just thrust and perry. And victory to the stronger.",
+          "word_errors": 2,
+          "reference_words": 9,
+          "wer": 0.2222222222222222
+        },
+        {
+          "seconds": 0.07939206622540951,
+          "text": "Just thrust and perry. And victory to the stronger.",
+          "word_errors": 1,
+          "reference_words": 9,
+          "wer": 0.1111111111111111
+        },
+        {
+          "seconds": 0.0822511650621891,
+          "text": "Just thrust and perry. And victory to the stronger.",
+          "word_errors": 1,
+          "reference_words": 9,
+          "wer": 0.1111111111111111
+        }
+      ],
+      "median_s": 0.0822511650621891
+    },
+    {
+      "name": "librispeech-1272-141231-0026",
+      "reference": "BREATHING DEEPLY BRION SOFTLY SPOKE THE AUTO HYPNOTIC PHRASES THAT TRIGGERED THE PROCESS",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "df76195fb11d8f944ce959d5fa83886b1609f3ea13eb1cd309307520e845eb91",
+      "duration_s": 6.635,
+      "runs": [
+        {
+          "seconds": 0.14343112707138062,
+          "text": "Breathing deeply. Breon softly spoke the autohypnotic phrases that triggered the process.",
+          "word_errors": 3,
+          "reference_words": 13,
+          "wer": 0.23076923076923078
+        },
+        {
+          "seconds": 0.14347333647310734,
+          "text": "Breathing deeply. Breon softly spoke the autohypnotic phrases that triggered the process.",
+          "word_errors": 3,
+          "reference_words": 13,
+          "wer": 0.23076923076923078
+        },
+        {
+          "seconds": 0.1459620762616396,
+          "text": "Breathing deeply. Breon softly spoke the autohypnotic phrases that triggered the process.",
+          "word_errors": 3,
+          "reference_words": 13,
+          "wer": 0.23076923076923078
+        }
+      ],
+      "median_s": 0.14347333647310734
+    },
+    {
+      "name": "librispeech-1272-141231-0032",
+      "reference": "THEN THE POWERFUL TWIST THAT THRUST IT ASIDE IN AND UNDER THE GUARD",
+      "source": "https://huggingface.co/datasets/hf-internal-testing/librispeech_asr_dummy/resolve/5be91486e11a2d616f4ec5db8d3fd248585ac07a/clean/validation-00000-of-00001.parquet",
+      "speaker_id": 1272,
+      "sha256": "4188cb92843752a80425a142d039b841d36f1b11079530d076878be176d81039",
+      "duration_s": 4.48,
+      "runs": [
+        {
+          "seconds": 0.09402034152299166,
+          "text": "Then the powerful twist that thrusted aside. In and under the guard,",
+          "word_errors": 2,
+          "reference_words": 13,
+          "wer": 0.15384615384615385
+        },
+        {
+          "seconds": 0.1220621932297945,
+          "text": "So Then the powerful twist that thrusted aside. In and under the guard,",
+          "word_errors": 3,
+          "reference_words": 13,
+          "wer": 0.23076923076923078
+        },
+        {
+          "seconds": 0.09517219197005033,
+          "text": "So Then the powerful twist that thrusted aside. In and under the guard,",
+          "word_errors": 3,
+          "reference_words": 13,
+          "wer": 0.23076923076923078
+        }
+      ],
+      "median_s": 0.09517219197005033
+    }
+  ],
+  "replay": {
+    "estimated_first_stable_s": 3.0536873834207654,
+    "conflicts": 0,
+    "updates": [
+      {
+        "audio_at_s": 1.5,
+        "inference_s": 0.036145989783108234,
+        "final": false,
+        "text": "Please send the revised guide.",
+        "committed": "",
+        "conflict": false
+      },
+      {
+        "audio_at_s": 3.0,
+        "inference_s": 0.0536873834207654,
+        "final": false,
+        "text": "Please send the revised document tomorrow morning.",
+        "committed": "Please send the revised",
+        "conflict": false
+      },
+      {
+        "audio_at_s": 4.5,
+        "inference_s": 0.1031116396188736,
+        "final": false,
+        "text": "Please send the revised document to my remote modeling. I will check the spelling before",
+        "committed": "Please send the revised document",
+        "conflict": false
+      },
+      {
+        "audio_at_s": 5.8,
+        "inference_s": 0.126133662648499,
+        "final": true,
+        "text": "Please send the revised document to my remote moulding. I will check the spelling before the meeting.",
+        "committed": "Please send the revised document to my remote moulding. I will check the spelling before the meeting.",
+        "conflict": false
+      },
+      {
+        "audio_at_s": 7.5,
+        "inference_s": 0.031270661391317844,
+        "final": false,
+        "text": "Open the terminal and install.",
+        "committed": "",
+        "conflict": false
+      },
+      {
+        "audio_at_s": 9.0,
+        "inference_s": 0.07252003904432058,
+        "final": false,
+        "text": "Open the terminal and install the package. The microwave.",
+        "committed": "Open the terminal and",
+        "conflict": false
+      },
+      {
+        "audio_at_s": 10.5,
+        "inference_s": 0.10130694042891264,
+        "final": false,
+        "text": "Open the terminal and install the package. The microphone uses a local model we have.",
+        "committed": "Open the terminal and install the package. The",
+        "conflict": false
+      },
+      {
+        "audio_at_s": 12.0,
+        "inference_s": 0.12710206117480993,
+        "final": false,
+        "text": "Open the terminal and install the package. The microphone uses a local model without sending audio to remote.",
+        "committed": "Open the terminal and install the package. The microphone uses a local model",
+        "conflict": false
+      },
+      {
+        "audio_at_s": 13.2,
+        "inference_s": 0.13154330104589462,
+        "final": true,
+        "text": "Open the terminal and install the package. The microphone uses a local model without sending audio to remote server.",
+        "committed": "Open the terminal and install the package. The microphone uses a local model without sending audio to remote server.",
+        "conflict": false
+      }
+    ]
+  },
+  "peak_rss_mib": 207.87109375
+}

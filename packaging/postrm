@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-only
+set -eu
+case "${1:-}" in
+    remove|purge)
+        # Only our package cache. Never enumerate homes or follow linked targets.
+        # DPKG_ROOT is set by dpkg for operations against a different root.
+        rm -rf --one-file-system -- "${DPKG_ROOT:-}/var/cache/dictadesk"
+        ;;
+esac
+exit 0

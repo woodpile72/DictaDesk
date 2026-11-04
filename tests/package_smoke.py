@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: GPL-3.0-only
+"""Installed-package launch check; use a private HOME, bus, display and model cache."""
+
+import os
+import subprocess
+import sys
+import time
+
+assert os.environ["HOME"].startswith("/tmp/dictadesk-test.")
+assert os.environ.get("DICTADESK_PACKAGE_TEST") == "1"
+sys.path[:0] = ["/usr/lib/dictadesk", "/usr/lib/dictadesk/vendor"]
+from dictadesk import APP_ID, __version__  # noqa: E402
+from dictadesk.core.settings import SettingsStore  # noqa: E402
+from dictadesk.core.models import model_directory  # noqa: E402
+from gi.repository import Gio, GLib  # noqa: E402
+from Xlib import display, X  # noqa: E402
+import onnxruntime  # noqa: E402
+import moonshine_voice  # noqa: E402, F401
+
+assert __version__ == "1.0.0"
+assert onnxruntime.get_available_providers()
+assert SettingsStore().read().local_model == "parakeet"
+assert str(model_directory(create=True)).startswith("/var/cache/dictadesk/")
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+app_path = "/" + APP_ID.replace(".", "/")
+
+
+def owns():
+    return bus.call_sync(
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "NameHasOwner",
+        GLib.Variant("(s)", (APP_ID,)),
+        None,
+        Gio.DBusCallFlags.NONE,
+        3000,
+        None,
+    ).unpack()[0]
+
+
+def action(name):
+    bus.call_sync(
+        APP_ID,
+        app_path,
+        "org.gtk.Actions",
+        "Activate",
+        GLib.Variant("(sava{sv})", (name, [], {})),
+        None,
+        Gio.DBusCallFlags.NONE,
+        3000,
+        None,
+    )
+
+
+assert not owns()
+process = subprocess.Popen(["/usr/bin/dictadesk", "--background"])
+try:
+    deadline = time.monotonic() + 15
+    while not owns() and time.monotonic() < deadline:
+        assert process.poll() is None
+        time.sleep(0.1)
+    assert owns()
+    action("show")
+    time.sleep(0.5)
+    connection = display.Display()
+    visible = [
+        w
+        for w in connection.screen().root.query_tree().children
+        if w.get_wm_class()
+        and any("dictadesk" in c.lower() for c in w.get_wm_class())
+        and w.get_attributes().map_state == X.IsViewable
+    ]
+    assert visible, "Packaged main window did not map"
+    action("about")
+    time.sleep(0.3)
+    action("preferences")
+    time.sleep(0.3)
+    tooltip = bus.call_sync(
+        APP_ID,
+        "/StatusNotifierItem",
+        "org.freedesktop.DBus.Properties",
+        "Get",
+        GLib.Variant("(ss)", ("org.kde.StatusNotifierItem", "ToolTip")),
+        None,
+        Gio.DBusCallFlags.NONE,
+        3000,
+        None,
+    ).unpack()[0]
+    assert tooltip[2] == "DictaDesk"
+    connection.close()
+    action("quit")
+    assert process.wait(timeout=10) == 0
+    assert not owns()
+    assert not list(model_directory().rglob("*.onnx"))
+    print(
+        "PASS installed 1.0.0: runtime imports, main window, About, Preferences, tray and clean shutdown"
+    )
+finally:
+    if process.poll() is None:
+        process.terminate()
+        process.wait(timeout=10)

@@ -1,0 +1,9 @@
+include LICENSE NOTICE README.rst DEVELOPMENT.rst PROVENANCE.txt requirements.lock
+recursive-include data *.desktop
+recursive-include scripts *.py build-deb test-ui
+recursive-include tests *.py *.rst *.json
+recursive-include dictadesk-iconset *.svg *.png *.txt
+recursive-include src/dictadesk/resources *.svg *.txt
+
+recursive-include packaging *
+recursive-include media/screenshots *.png

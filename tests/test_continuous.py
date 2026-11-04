@@ -1,0 +1,335 @@
+# SPDX-License-Identifier: GPL-3.0-only
+from array import array
+from pathlib import Path
+import queue
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+import wave
+from cffi import FFI
+
+from dictadesk.audio.continuous import ContinuousCapture, Phrases
+from dictadesk.core.session import Session
+from dictadesk.core.settings import Preferences, SettingsStore
+from dictadesk.core.transcript import continuation
+
+VOICE = array("h", [5000] * 1600).tobytes()
+SILENCE = bytes(3200)
+
+
+class CaptureBufferTests(unittest.TestCase):
+    def capture_buffers(self, blocks):
+        capture = ContinuousCapture(Preferences(), Path("unused"))
+
+        class Input:
+            def __init__(self, **kwargs):
+                self.callback = kwargs["callback"]
+
+            def __enter__(self):
+                for block in blocks:
+                    self.callback(block, 1600, None, None)
+                    if capture.stop.is_set():
+                        break
+                capture.stop.set()
+                return self
+
+            def __exit__(self, *_):
+                pass
+
+        with (
+            patch("sounddevice.RawInputStream", Input),
+            patch("dictadesk.audio.continuous.resolve", return_value=None),
+        ):
+            capture.run(lambda: None)
+        self.assertTrue(capture.done.is_set())
+        return capture
+
+    def test_portaudio_cffi_buffer_is_copied_before_reuse(self):
+        ffi = FFI()
+        storage = ffi.new("char[]", VOICE)
+        buffer = ffi.buffer(storage, len(VOICE))
+
+        def blocks():
+            yield buffer
+            yield buffer
+            # PortAudio can overwrite its buffer immediately after callback return.
+            buffer[:] = SILENCE
+
+        capture = self.capture_buffers(blocks())
+        self.assertEqual(capture.problem, "")
+        self.assertAlmostEqual(capture.peak, 5000 / 32768)
+        self.assertEqual(capture.phrases.get_nowait(), VOICE * 2)
+        self.assertTrue(capture.phrases.empty())
+
+    def test_callback_failure_stops_capture_and_reports_problem(self):
+        capture = self.capture_buffers([VOICE, VOICE, b"\x01"])
+        self.assertTrue(capture.stop.is_set())
+        self.assertIn("could not be read", capture.problem)
+        self.assertEqual(capture.phrases.get_nowait(), VOICE * 2)
+
+
+class PhraseTests(unittest.TestCase):
+    def test_pause_commits_once_and_final_partial_is_retained(self):
+        p = Phrases(0.3, 0.01)
+        self.assertIsNone(p.add(VOICE))
+        self.assertIsNone(p.add(VOICE))
+        self.assertIsNone(p.add(SILENCE))
+        self.assertIsNone(p.add(SILENCE))
+        self.assertEqual(p.add(SILENCE), VOICE * 2 + SILENCE * 3)
+        self.assertIsNone(p.add(SILENCE))
+        p.add(VOICE)
+        p.add(VOICE)
+        self.assertEqual(p.finish(), VOICE * 2)
+        self.assertIsNone(p.finish())
+
+    def test_silence_does_not_accumulate_or_request_recognition(self):
+        p = Phrases(0.8, 0.01)
+        for _ in range(10000):
+            self.assertIsNone(p.add(SILENCE))
+        self.assertEqual(len(p.audio), 0)
+        self.assertIsNone(p.finish())
+
+    def test_pause_with_noise_spikes_commits_before_stop(self):
+        p = Phrases(0.3, 0.015)
+        noisy_pause = array("h", [10000] + [120, -120] * 799 + [120]).tobytes()
+        self.assertIsNone(p.add(VOICE))
+        self.assertIsNone(p.add(VOICE))
+        self.assertIsNone(p.add(noisy_pause))
+        self.assertIsNone(p.add(noisy_pause))
+        self.assertEqual(p.add(noisy_pause), VOICE * 2 + noisy_pause * 3)
+        for _ in range(20):
+            self.assertIsNone(p.add(noisy_pause))
+        self.assertIsNone(p.finish())
+
+    def test_unbroken_speech_emits_by_eight_seconds_without_stop(self):
+        p = Phrases(0.8, 0.015)
+        chunks = [p.add(VOICE) for _ in range(80)]
+        self.assertEqual([chunk for chunk in chunks if chunk], [VOICE * 80])
+        self.assertIsNone(p.finish())
+
+    def test_long_speech_has_bounded_phrases(self):
+        p = Phrases(0.8, 0.01, max_seconds=1)
+        emitted = [p.add(VOICE) for _ in range(100)]
+        chunks = [x for x in emitted if x]
+        self.assertEqual(len(chunks), 10)
+        self.assertTrue(all(len(x) == 32000 for x in chunks))
+
+    def test_full_phrase_queue_cancel_does_not_deadlock(self):
+        c = ContinuousCapture(Preferences(), Path("unused"))
+        for _ in range(8):
+            c.phrases.put(VOICE)
+        thread = threading.Thread(target=c.emit, args=(VOICE,))
+        thread.start()
+        c.cancel.set()
+        thread.join(1)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(c.phrases.qsize(), 8)
+
+    def test_spacing_across_committed_phrases(self):
+        for before, after, expected in (
+            ("Hello", ".", "."),
+            ("Hello.", "next", "Next"),
+            ("Hello", "world", " world"),
+            ("Hello", "\n\n", "\n\n"),
+            ("Note (", "text)", "text)"),
+            ("Note", "(text)", " (text)"),
+        ):
+            with self.subTest(before=before, after=after):
+                # Sentence continuation needs a space after punctuation.
+                if before == "Hello." and after == "next":
+                    expected = " Next"
+                self.assertEqual(continuation(before, after), expected)
+
+
+class FakeCapture(ContinuousCapture):
+    def run(self, started):
+        started()
+        for _ in range(3):
+            self.phrases.put(VOICE * 2)
+        self.done.set()
+
+
+class FakeRecognizer:
+    loaded = True
+
+    def __init__(self):
+        self.replies = iter(["Hello comma world", "period", "next dot dot dot"])
+        self.requests = []
+
+    def request(self, payload, cancel, **kwargs):
+        with wave.open(payload["path"]) as audio:
+            assert audio.getnframes() == 3200
+        self.requests.append(payload["op"])
+        return {"text": next(self.replies)}
+
+    def close(self):
+        self.loaded = False
+
+
+class ContinuousSessionTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        env = patch.dict("os.environ", {"XDG_CACHE_HOME": str(self.root)})
+        env.start()
+        self.addCleanup(env.stop)
+        capture = patch("dictadesk.audio.continuous.ContinuousCapture", FakeCapture)
+        capture.start()
+        self.addCleanup(capture.stop)
+        self.callbacks = queue.Queue()
+        self.full_deliveries = []
+        self.worker = FakeRecognizer()
+        self.session = Session(
+            self.callbacks.put,
+            lambda: None,
+            lambda *args: self.full_deliveries.append(args),
+            SettingsStore(self.root / "settings"),
+            self.worker,
+        )
+        self.session.microphone_problem = ""
+        self.session.preferences.spoken_punctuation = True
+        self.session.preferences.continuous_live = False
+        self.sent = []
+
+        def deliver(value, target, done):
+            self.sent.append(value)
+            done(True)
+
+        self.session.stream_delivered = deliver
+        self.events = []
+        self.session.recording_event = lambda kind, body: self.events.append(kind)
+
+    def drain(self):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                self.callbacks.get(timeout=0.05)()
+            except queue.Empty:
+                pass
+            if not self.session.thread.is_alive() and self.callbacks.empty():
+                break
+        self.assertFalse(self.session.thread.is_alive(), "Continuous worker did not finish")
+        self.assertEqual(list(self.root.rglob("*.wav")), [])
+
+    def test_commits_in_order_without_pasting_whole_transcript_again(self):
+        self.session.record_continuous(target=object())
+        self.drain()
+        self.assertEqual(self.sent, ["Hello, world", ".", " Next…"])
+        self.assertEqual(self.session.result.text, "Hello, world. Next…")
+        self.assertEqual(self.session.pending_text, "")
+        self.assertEqual(self.full_deliveries, [])
+        self.assertFalse(self.session.continuous)
+        self.assertEqual(self.events, ["started", "stopped", "completed"])
+        self.assertEqual(self.session.notice, "")
+
+    def test_window_collects_multiple_phrases_then_copies_once(self):
+        with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):
+            self.session.record_in_window()
+            self.drain()
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.full_deliveries, [("Hello, world. Next…", None)])
+        self.assertEqual(self.session.inline_text, "Hello, world. Next…")
+        self.assertFalse(self.session.pending_text)
+
+    def test_silent_window_recording_preserves_previous_result_without_copy(self):
+        self.worker.replies = iter(["", "", ""])
+        self.session.result.replace("Previous result", [])
+        with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):
+            self.session.record_in_window()
+            self.drain()
+        self.assertEqual(self.full_deliveries, [])
+        self.assertEqual(self.session.result.text, "Previous result")
+        self.assertIn("No speech", self.session.notice)
+        self.assertNotIn("operation finished", self.session.notice)
+        self.assertEqual(self.events, ["started", "stopped", "failed"])
+
+    def test_failed_insertion_is_retained_and_blocks_overwrite(self):
+        self.session.stream_delivered = lambda value, target, done: done(False)
+        self.session.record_continuous(target=object())
+        self.drain()
+        self.assertEqual(self.session.pending_text, "Hello, world. Next…")
+        self.session.record()
+        self.assertIn("uninserted", self.session.notice)
+        self.assertEqual(self.session.result.text, self.session.pending_text)
+        self.assertEqual(self.events, ["started", "stopped", "attention"])
+
+    def test_cancel_retains_already_inserted_text_and_stops_next_phrase(self):
+        def deliver(value, target, done):
+            self.sent.append(value)
+            done(True)
+            self.session.cancel()
+
+        self.session.stream_delivered = deliver
+        self.session.record_continuous(target=object())
+        self.drain()
+        self.assertEqual(self.sent, ["Hello, world"])
+        self.assertEqual(self.session.result.text, "Hello, world")
+        self.assertIn("already inserted", self.session.notice)
+        self.assertEqual(len(self.worker.requests), 1)
+        self.assertEqual(self.events, ["started", "stopped", "cancelled"])
+
+    def test_remote_uses_selected_backend_for_each_phrase(self):
+        self.session.preferences.backend = "openai"
+        self.session.credential_available = True
+        with patch("dictadesk.core.session.read_key", return_value="fixture-key"):
+            self.session.record_continuous(target=object())
+            self.drain()
+        self.assertEqual(self.worker.requests, ["cloud"] * 3)
+
+    def test_no_destination_keeps_text_without_paste(self):
+        self.session.record_continuous()
+        self.drain()
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.session.pending_text, "Hello, world. Next…")
+
+    def test_later_recognition_failure_preserves_committed_text(self):
+        original = self.worker.request
+
+        def request(payload, cancel, **kwargs):
+            if self.worker.requests:
+                raise RuntimeError("fixture recognition failure")
+            return original(payload, cancel, **kwargs)
+
+        self.worker.request = request
+        self.session.record_continuous(target=object())
+        self.drain()
+        self.assertEqual(self.sent, ["Hello, world"])
+        self.assertEqual(self.session.result.text, "Hello, world")
+        self.assertIn("recognition failure", self.session.notice)
+
+    def test_notification_failure_does_not_interrupt_dictation(self):
+        def unavailable(*args):
+            raise RuntimeError("No notification server")
+
+        self.session.recording_event = unavailable
+        self.session.record_continuous(target=object())
+        self.drain()
+        self.assertEqual(self.session.result.text, "Hello, world. Next…")
+        self.assertEqual(self.session.notice, "")
+
+    def test_non_recording_and_stale_events_are_ignored(self):
+        c = self.session
+        c._begin("loading")
+        c._recording_event(c.operation, "started")
+        self.assertEqual(self.events, [])
+        c._dictation_operation = c.operation
+        c._recording_event(c.operation - 1, "started")
+        c._recording_event(c.operation, "completed")
+        self.assertEqual(self.events, [])
+        c._recording_event(c.operation, "started")
+        c._recording_event(c.operation, "started")
+        c._recording_event(c.operation, "completed")
+        c._recording_event(c.operation, "stopped")
+        self.assertEqual(self.events, ["started", "stopped", "completed"])
+
+    def test_attention_prevents_later_success_for_same_recording(self):
+        c = self.session
+        c._begin("starting")
+        c._dictation_operation = c.operation
+        c._recording_event(c.operation, "started")
+        c._recording_event(c.operation, "attention")
+        c._recording_event(c.operation, "completed")
+        self.assertEqual(self.events, ["started", "stopped", "attention"])

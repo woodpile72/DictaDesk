@@ -1,0 +1,10 @@
+DictaDesk — implementation provenance
+
+Application code and tests are licensed GPL-3.0-only, Copyright 2026 Erick Woods.
+DictaDesk is an independent implementation; no formal clean-room certification
+or independent audit is claimed. Its development followed prior work on another
+dictation application. Source, tests and packaging in this project were newly
+authored for DictaDesk.
+
+Supplied launcher artwork retains its MIT license. Dependencies and downloaded
+models retain their upstream licenses. See NOTICE and LICENSE.

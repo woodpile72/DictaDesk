@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+scratch=$(mktemp -d /tmp/dictadesk-test.XXXXXX)
+trap 'rm -rf "$scratch"' EXIT
+export HOME="$scratch" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" XDG_DATA_HOME="$scratch/data" XDG_STATE_HOME="$scratch/state" XDG_RUNTIME_DIR="$scratch/runtime"
+export XDG_SESSION_TYPE=x11 GTK_A11Y=none GSK_RENDERER=cairo
+mkdir -m 700 "$XDG_RUNTIME_DIR"
+xvfb-run -a -s '-screen 0 1280x1000x24' dbus-run-session -- "$@"

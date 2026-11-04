@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>DictaDesk</title>
+  <desc>A white microphone beside three lines of text on a muted green tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#79ad69"/>
+      <stop offset="1" stop-color="#568b4b"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="12" width="112" height="110" rx="25" fill="#365d32"/>
+  <rect x="8" y="6" width="112" height="112" rx="25" fill="url(#tile)"/>
+  <path d="M33 7h62a24 24 0 0 1 24 24" fill="none" stroke="#fff" stroke-opacity=".15" stroke-width="2"/>
+  <rect x="32" y="28" width="24" height="43" rx="12" fill="#f7faf4"/>
+  <path d="M24 59v4a20 20 0 0 0 40 0v-4M44 83v14M34 97h20" fill="none" stroke="#f7faf4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M78 43h22M78 59h22M78 75h14" fill="none" stroke="#f7faf4" stroke-width="6" stroke-linecap="round"/>
+</svg>

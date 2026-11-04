@@ -1,0 +1,36 @@
+.TH DICTADESK 1 "November 2026" "DictaDesk 1.0" "User Commands"
+.SH NAME
+dictadesk \- Desktop Dictation for Linux
+.SH SYNOPSIS
+.B dictadesk
+.RI [ --background ]
+.SH DESCRIPTION
+DictaDesk provides local or explicitly selected remote speech transcription,
+configurable desktop shortcuts and a notification-area icon.
+Local Parakeet transcription is the default; download a model in Preferences.
+.SH OPTIONS
+.TP
+.B --background
+Start in the notification area without opening the main window.
+If a tray host is unavailable, show the window so the application remains reachable.
+.SH SHORTCUTS
+Super+V starts dictation and inserts text at pauses. Press again or Escape to finish.
+Super+Shift+V starts continuous dictation. Shortcuts can be changed in Preferences.
+Global shortcuts and automatic insertion require X11.
+.SH FILES
+.TP
+.I ~/.config/dictadesk/preferences.json
+User preferences; XDG_CONFIG_HOME is respected.
+.TP
+.I /var/cache/dictadesk/<uid>
+Private per-user model cache for the Debian installation.
+Package removal deletes this cache; upgrades preserve it.
+.SH PRIVACY
+Local transcription processes audio on this computer after model download.
+Remote mode sends audio to OpenAI and may incur API charges.
+.SH AUTHOR
+Erick Woods.
+.SH LICENSE
+GNU General Public License version 3 only (GPL-3.0-only).
+.SH SEE ALSO
+https://github.com/woodpile72/DictaDesk

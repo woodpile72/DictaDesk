@@ -1,0 +1,57 @@
+DictaDesk
+Copyright 2026 Erick Woods
+Application code, documentation, tests and original tray artwork: GPL-3.0-only.
+See LICENSE for the complete license.
+
+Launcher artwork
+----------------
+The microphone launcher icon in dictadesk-iconset/ and its packaged SVG retain
+their supplied MIT license. The application itself is not MIT licensed.
+
+MIT License
+Copyright (c) 2026 Erick Woods
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Runtime dependencies
+--------------------
+The Debian installer includes the exact Python wheels in requirements.lock.
+These are separate upstream works, not relicensed as DictaDesk code. Their
+copyright and license files are retained under /usr/lib/dictadesk/vendor,
+including each distribution's .dist-info directory and bundled library notices.
+
+Acknowledgments include ONNX Runtime, onnx-asr, Moonshine Voice, NumPy,
+FlatBuffers, Hugging Face Hub, sounddevice/PortAudio, python-xlib, keyring,
+SecretStorage, cryptography and their dependencies. Source project URLs and
+versions are retained in the installed wheel metadata. FlatBuffers' Python
+wheel omits the full Apache 2.0 text; packaging/licenses/Apache-2.0.txt supplies
+it alongside the preserved Copyright 2014 Google Inc. notices in its source.
+System libraries such as Python, GTK, libadwaita, GLib, PyGObject and PortAudio
+are installed by the distribution package manager and retain their own licenses.
+
+Models are downloaded separately, never bundled in the repository or installer:
+- Parakeet: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+- ONNX exports: https://huggingface.co/istupakov
+- Moonshine Tiny English: https://huggingface.co/moonshine-ai/moonshine-tiny
+- Whisper: https://github.com/openai/whisper
+- Whisper Tiny ONNX: https://huggingface.co/onnx-community/whisper-tiny
+Model cards and repositories describe each model's licensing and limitations.
+
+Evaluation references and public-sample attribution are in tests/MODEL-EVALUATION.rst.
+No downloaded model or evaluation audio is included in source control.
