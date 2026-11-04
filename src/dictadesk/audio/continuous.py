@@ -17,16 +17,20 @@ class AudioUpdate:
     segment: int
     audio: bytes
     final: bool
+    paused: bool = False
+    sentence_end: bool = True
 
 
 class Phrases:
-    def __init__(self, pause_seconds, threshold, max_seconds=8):
+    def __init__(self, pause_seconds, threshold, max_seconds=8, defer_limit_during_pause=False):
         self.pause = int(pause_seconds * RATE)
         self.threshold = threshold
         self.maximum = int(max_seconds * RATE) * 2
+        self.defer_limit_during_pause = defer_limit_during_pause
         self.audio = bytearray()
         self.silence = 0
         self.voiced = False
+        self.sentence_end = True
 
     def add(self, data):
         samples = array("h", data)
@@ -39,7 +43,11 @@ class Phrases:
             self.silence += len(data) // 2
         if self.voiced:
             self.audio.extend(data)
-        if self.voiced and (self.silence >= self.pause or len(self.audio) >= self.maximum):
+        at_limit = len(self.audio) >= self.maximum and (
+            not self.defer_limit_during_pause or self.silence == 0
+        )
+        if self.voiced and (self.silence >= self.pause or at_limit):
+            self.sentence_end = self.silence >= self.pause
             return self.finish()
         return None
 
@@ -58,21 +66,46 @@ class ContinuousCapture(Capture):
         self.problem = ""
         self.timed_out = False
         self.segment = 0
+        self.pause_emitted = False
 
     def has_updates(self):
         return not self.phrases.empty()
 
     def next_update(self, timeout=0.1):
         data = self.phrases.get(timeout=timeout)
+        if isinstance(data, AudioUpdate):
+            return data
         update = AudioUpdate(self.segment, data, True)
         self.segment += 1
         return update
 
-    def emit(self, data):
+    def pause_update(self):
+        splitter = getattr(self, "splitter", None)
+        if splitter is None:
+            return None
+        if splitter.silence == 0:
+            self.pause_emitted = False
+        if (
+            splitter.voiced
+            and not self.pause_emitted
+            and splitter.silence >= self.prefs.pause_seconds * RATE
+            and len(splitter.audio) >= RATE // 5 * 2
+        ):
+            self.pause_emitted = True
+            return AudioUpdate(self.segment, bytes(splitter.audio), False, paused=True)
+        return None
+
+    def emit(self, data, *, sentence_end=True):
         if data:
+            update = AudioUpdate(self.segment, data, True, sentence_end=sentence_end)
+            self.segment += 1
+            self.pause_emitted = False
+        else:
+            update = self.pause_update()
+        if update:
             while not self.cancel.is_set():
                 try:
-                    self.phrases.put(data, timeout=0.1)
+                    self.phrases.put(update, timeout=0.1)
                     return
                 except queue.Full:
                     pass
@@ -82,8 +115,35 @@ class ContinuousCapture(Capture):
 
         chunks = queue.Queue(maxsize=100)
         self.splitter = splitter = Phrases(
-            self.prefs.pause_seconds, self.prefs.silence_threshold
+            max(self.prefs.pause_seconds, self.prefs.sentence_pause_seconds),
+            self.prefs.silence_threshold,
+            # Keep the established short recognition windows. Longer windows
+            # can revise speech already inserted, even far behind the tail.
+            # A pending sentence pause may finish before resetting context.
+            max_seconds=8,
+            defer_limit_during_pause=True,
         )
+        pending_limit = None
+
+        def finish_limit():
+            nonlocal pending_limit
+            if pending_limit is not None:
+                # Finalize the same segment's withheld punctuation if silence
+                # or Stop follows a capacity boundary without any more speech.
+                self.segment -= 1
+                self.emit(pending_limit)
+                pending_limit = None
+
+        def consume(block):
+            nonlocal pending_limit
+            data = splitter.add(block)
+            self.emit(data, sentence_end=splitter.sentence_end)
+            if data:
+                pending_limit = data if not splitter.sentence_end else None
+            elif splitter.voiced:
+                pending_limit = None
+            elif splitter.silence >= splitter.pause:
+                finish_limit()
 
         def receive(data, frames, timing, status):
             if status:
@@ -122,13 +182,14 @@ class ContinuousCapture(Capture):
                         self.timed_out = True
                         break
                     try:
-                        self.emit(splitter.add(chunks.get(timeout=0.1)))
+                        consume(chunks.get(timeout=0.1))
                     except queue.Empty:
                         pass
             while not chunks.empty() and not self.cancel.is_set():
-                self.emit(splitter.add(chunks.get_nowait()))
+                consume(chunks.get_nowait())
             if not self.cancel.is_set():
                 self.emit(splitter.finish())
+                finish_limit()
         except Exception:
             self.problem = "The microphone stopped. Completed text is retained; check the microphone before continuing."
         finally:
@@ -160,7 +221,7 @@ class IncrementalCapture(ContinuousCapture):
             result, self.partial = self.partial, None
             return result
 
-    def emit(self, data):
+    def emit(self, data, *, sentence_end=True):
         with self.condition:
             if data:
                 # A final supersedes a pending preview of the same audio.
@@ -169,10 +230,17 @@ class IncrementalCapture(ContinuousCapture):
                     self.condition.wait(0.1)
                 if self.cancel.is_set():
                     return
-                self.finals.append(AudioUpdate(self.segment, data, True))
+                self.finals.append(
+                    AudioUpdate(self.segment, data, True, sentence_end=sentence_end)
+                )
                 self.segment += 1
+                self.pause_emitted = False
                 self.next_preview = int(1.5 * RATE) * 2
-            elif len(self.splitter.audio) >= self.next_preview:
-                self.partial = AudioUpdate(self.segment, bytes(self.splitter.audio), False)
-                self.next_preview = len(self.splitter.audio) + int(1.5 * RATE) * 2
+            else:
+                paused = self.pause_update()
+                if paused:
+                    self.partial = paused
+                elif not self.pause_emitted and len(self.splitter.audio) >= self.next_preview:
+                    self.partial = AudioUpdate(self.segment, bytes(self.splitter.audio), False)
+                    self.next_preview = len(self.splitter.audio) + int(1.5 * RATE) * 2
             self.condition.notify_all()

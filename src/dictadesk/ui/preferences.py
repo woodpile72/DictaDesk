@@ -205,10 +205,15 @@ class PreferencesDialog:
         self.pause_rows = []
         for key, title, low, high, step, digits in [
             ("pause_seconds", "Pause Length (Seconds)", 0.3, 5, 0.1, 1),
+            ("sentence_pause_seconds", "Sentence Pause (Seconds)", 1, 10, 0.1, 1),
             ("silence_threshold", "Silence Threshold", 0.001, 0.2, 0.001, 3),
         ]:
             row = Adw.SpinRow.new_with_range(low, high, step)
             row.set_title(title)
+            if key == "pause_seconds":
+                row.set_subtitle("Show text after a short pause without ending the sentence.")
+            elif key == "sentence_pause_seconds":
+                row.set_subtitle("Wait this long before finalizing the sentence ending.")
             row.set_digits(digits)
             row.set_value(self.values[key])
             local.add(row)
@@ -723,7 +728,8 @@ class PreferencesDialog:
                 else:
                     data[key] = (
                         control.get_value()
-                        if key in ("pause_seconds", "silence_threshold")
+                        if key
+                        in ("pause_seconds", "sentence_pause_seconds", "silence_threshold")
                         else int(control.get_value())
                     )
             data["microphone"], data["host_api"] = self.device_values[self.input.get_selected()]

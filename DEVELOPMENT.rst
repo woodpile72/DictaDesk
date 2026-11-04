@@ -51,7 +51,7 @@ Packaging
 
 From the reviewed release tag, use the Python 3.12 environment above::
 
-    git checkout v1.0.2
+    git checkout v1.0.4
     scripts/build-deb
 
 ``requirements.lock`` pins private runtime wheels and their SHA-256 hashes.
@@ -87,3 +87,10 @@ embedded libraries, upstream unstripped binaries and wheel-script packaging
 conventions; this is a GitHub-distributed prerelease, not a Debian archive package.
 The sticky model-cache directory permits separate private per-user subdirectories.
 Upstream binary contents and their license notices are preserved.
+
+The 1.0.4 pause update adds a separate sentence-pause setting (4.5 seconds),
+keeps short-pause audio context within bounded recognition windows and withholds
+provisional sentence endings. Existing saved short-pause settings are preserved.
+The update passes 165 unit tests, isolated GTK checks and generated-speech
+Parakeet tests in pause, live and in-window modes. Synthetic speech checks
+insertion and cleanup; it does not establish accuracy for every voice or language.

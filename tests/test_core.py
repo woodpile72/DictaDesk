@@ -37,6 +37,17 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(self.store.read(), p)
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
 
+    def test_existing_pause_setting_gets_separate_sentence_default(self):
+        self.path.write_text(json.dumps({"schema": 1, "preferences": {"pause_seconds": 0.8}}))
+        prefs = self.store.read()
+        self.assertEqual(prefs.pause_seconds, 0.8)
+        self.assertEqual(prefs.sentence_pause_seconds, 4.5)
+        prefs.sentence_pause_seconds = 5.2
+        self.store.save(prefs)
+        self.assertEqual(self.store.read().sentence_pause_seconds, 5.2)
+        with self.assertRaises(ValueError):
+            replace(prefs, sentence_pause_seconds=0.2).validate()
+
     def test_legacy_remote_models_upgrade_without_resetting_other_preferences(self):
         from dataclasses import asdict
         from dictadesk.core.settings import LEGACY_REMOTE_MODELS
@@ -184,6 +195,20 @@ class StorageTests(unittest.TestCase):
 
 
 class TranscriptTests(unittest.TestCase):
+    def test_builtin_branding_and_personal_override(self):
+        self.assertEqual(
+            correct("Dictadesk dictadesk DICTADESK", []), "DictaDesk DictaDesk DictaDesk"
+        )
+        self.assertEqual(correct("Dictadesk", [["dictadesk", "My tool"]]), "My tool")
+        self.assertEqual(correct("voice", [["voice", "dictadesk"]]), "dictadesk")
+        text = "dictadesking dictadesk.com https://site/dictadesk me@dictadesk.org /dictadesk"
+        self.assertEqual(correct(text, []), text)
+        result = Transcript()
+        result.replace("Dictadesk works.", [])
+        self.assertEqual(result.text, "DictaDesk works.")
+        result.undo = True
+        self.assertEqual(result.text, "Dictadesk works.")
+
     def test_whole_words_unicode_case(self):
         self.assertEqual(
             correct("ERIC Ericson éric", [["eric", "Erick"]]), "Erick Ericson éric"

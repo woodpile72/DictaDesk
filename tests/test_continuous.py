@@ -60,14 +60,53 @@ class CaptureBufferTests(unittest.TestCase):
         capture = self.capture_buffers(blocks())
         self.assertEqual(capture.problem, "")
         self.assertAlmostEqual(capture.peak, 5000 / 32768)
-        self.assertEqual(capture.phrases.get_nowait(), VOICE * 2)
+        self.assertEqual(capture.phrases.get_nowait().audio, VOICE * 2)
         self.assertTrue(capture.phrases.empty())
 
     def test_callback_failure_stops_capture_and_reports_problem(self):
         capture = self.capture_buffers([VOICE, VOICE, b"\x01"])
         self.assertTrue(capture.stop.is_set())
         self.assertIn("could not be read", capture.problem)
-        self.assertEqual(capture.phrases.get_nowait(), VOICE * 2)
+        self.assertEqual(capture.phrases.get_nowait().audio, VOICE * 2)
+
+    def test_thinking_pause_preserves_audio_until_sentence_pause(self):
+        capture = self.capture_buffers(
+            [VOICE] * 2 + [SILENCE] * 10 + [VOICE] * 2 + [SILENCE] * 45
+        )
+        updates = []
+        while capture.has_updates():
+            updates.append(capture.next_update())
+        self.assertEqual([u.final for u in updates], [False, False, True])
+        self.assertEqual([u.segment for u in updates], [0, 0, 0])
+        self.assertTrue(updates[0].paused)
+        self.assertEqual(updates[0].audio, VOICE * 2 + SILENCE * 10)
+        self.assertEqual(updates[-1].audio, VOICE * 2 + SILENCE * 10 + VOICE * 2 + SILENCE * 45)
+        self.assertTrue(updates[-1].sentence_end)
+
+    def test_stop_flushes_before_sentence_timeout(self):
+        capture = self.capture_buffers([VOICE] * 2 + [SILENCE] * 10)
+        first, last = capture.next_update(), capture.next_update()
+        self.assertTrue(first.paused)
+        self.assertFalse(first.final)
+        self.assertTrue(last.final)
+        self.assertTrue(last.sentence_end)
+        self.assertEqual(first.audio, last.audio)
+
+    def test_capacity_boundary_still_finalizes_after_silence_or_stop(self):
+        for quiet_blocks in (10, 45):
+            with patch(
+                "dictadesk.audio.continuous.Phrases",
+                side_effect=lambda pause, threshold, **kw: Phrases(
+                    pause, threshold, max_seconds=0.3, defer_limit_during_pause=True
+                ),
+            ):
+                capture = self.capture_buffers([VOICE] * 3 + [SILENCE] * quiet_blocks)
+            first, last = capture.next_update(), capture.next_update()
+            self.assertEqual(first.segment, last.segment)
+            self.assertFalse(first.sentence_end)
+            self.assertTrue(last.sentence_end)
+            self.assertEqual(first.audio, last.audio)
+            self.assertFalse(capture.has_updates())
 
 
 class PhraseTests(unittest.TestCase):

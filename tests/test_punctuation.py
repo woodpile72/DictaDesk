@@ -1,10 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import unittest
-from dictadesk.core.transcript import Transcript, punctuate
+from dictadesk.core.transcript import Transcript, punctuate, provisional
 from dictadesk.core.settings import Preferences
 
 
 class PunctuationTests(unittest.TestCase):
+    def test_provisional_ending_keeps_spoken_commands_and_internal_punctuation(self):
+        self.assertEqual(provisional("Hello.", "Hello."), "Hello")
+        self.assertEqual(provisional('He said "hello."', 'He said "hello."'), 'He said "hello')
+        self.assertEqual(
+            provisional("Hello. Next thought.", "Hello. Next thought."), "Hello. Next thought"
+        )
+        for command in ("period", "question mark", "dot dot dot", "new paragraph"):
+            raw = "Hello " + command
+            self.assertEqual(provisional(punctuate(raw), raw, True), punctuate(raw))
+
     def test_requested_sentence(self):
         self.assertEqual(
             punctuate("This is just a test period recording with dictadesk period."),

@@ -41,7 +41,8 @@ class Preferences:
     idle_seconds: int = 300
     max_seconds: int = 180
     preview_pauses: bool = False
-    pause_seconds: float = 0.8
+    pause_seconds: float = 1.0
+    sentence_pause_seconds: float = 4.5
     silence_threshold: float = 0.015
     auto_paste: bool = True
     symbolic: bool = True
@@ -105,7 +106,11 @@ class Preferences:
             value = getattr(self, name)
             if type(value) is not int or not low <= value <= high:
                 raise ValueError(f"{name} must be between {low} and {high}.")
-        for name, low, high in (("pause_seconds", 0.3, 5), ("silence_threshold", 0.001, 0.2)):
+        for name, low, high in (
+            ("pause_seconds", 0.3, 5),
+            ("sentence_pause_seconds", 1, 10),
+            ("silence_threshold", 0.001, 0.2),
+        ):
             value = getattr(self, name)
             if type(value) not in (int, float) or not low <= value <= high:
                 raise ValueError(f"{name} must be between {low} and {high}.")

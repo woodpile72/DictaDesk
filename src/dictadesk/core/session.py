@@ -492,6 +492,7 @@ class Session:
         from ..audio.continuous import ContinuousCapture, IncrementalCapture
         from ..audio.input import RATE
         from .incremental import StablePrefix
+        from .transcript import explicit_ending, provisional
 
         if self.continuous and self.phase in ("starting", "listening"):
             self.finish_recording()
@@ -593,11 +594,21 @@ class Session:
                         text = answer.get("text", "").strip()
                         piece = Transcript()
                         piece.replace(text, prefs.vocabulary, prefs.spoken_punctuation)
+                        if not update.final or not update.sentence_end:
+                            piece.corrected = provisional(
+                                piece.corrected, text, prefs.spoken_punctuation
+                            )
                         if in_window:
                             preview, conflict, committed = "", False, ""
                         else:
                             preview, conflict = stable.update(
-                                piece.corrected, final=update.final
+                                piece.corrected,
+                                final=update.final
+                                or (
+                                    update.paused
+                                    and explicit_ending(text, prefs.spoken_punctuation)
+                                ),
+                                paused=update.paused,
                             )
                             committed = stable.committed
                         acknowledged = threading.Event()

@@ -83,19 +83,41 @@ def following(chunk, pending):
 
 
 def correct(text, entries):
-    if not entries:
-        return text
-    mapping = {source.casefold(): replacement for source, replacement in entries}
+    # Personal rules take priority; all replacements use the original text so
+    # neither built-in nor personal substitutions cascade into another rule.
+    mapping = {"dictadesk": "DictaDesk"}
+    mapping.update({source.casefold(): replacement for source, replacement in entries})
     alternatives = "|".join(
         re.escape(source)
         for source, _ in sorted(entries, key=lambda pair: len(pair[0]), reverse=True)
     )
+    pattern = r"(?<![\w./@-])dictadesk(?![\w/@-]|\.[\w])"
+    if alternatives:
+        pattern = r"(?<!\w)(?:" + alternatives + r")(?!\w)|" + pattern
     return re.sub(
-        r"(?<!\w)(?:" + alternatives + r")(?!\w)",
+        pattern,
         lambda match: mapping[match[0].casefold()],
         text,
         flags=re.IGNORECASE,
     )
+
+
+def explicit_ending(original, enabled):
+    commands = list(COMMAND_PATTERN.finditer(original)) if enabled else []
+    if not commands:
+        return False
+    last = commands[-1]
+    command = " ".join(re.findall(r"\w+", last[0].lower()))
+    return COMMANDS[command] in (".", "?", "!", "…", "\n", "\n\n") and not original[
+        last.end() :
+    ].strip(" \t\r\n.,;:!?…")
+
+
+def provisional(text, original, spoken_punctuation=False):
+    """Hold a model's final punctuation until a real sentence boundary arrives."""
+    if explicit_ending(original, spoken_punctuation):
+        return text
+    return re.sub(r"[.!?…]+[\"'”’)}\]]*$", "", text).rstrip()
 
 
 def continuation(previous, fragment):

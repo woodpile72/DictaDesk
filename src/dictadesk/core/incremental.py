@@ -10,7 +10,7 @@ class StablePrefix:
         self.previous = []
         self.committed = ""
 
-    def update(self, text, *, final=False):
+    def update(self, text, *, final=False, paused=False):
         """Return (uncommitted preview, revision conflict). Never rewrite a prefix."""
         if not text.startswith(self.committed):
             return text, True
@@ -24,7 +24,14 @@ class StablePrefix:
         if final:
             self.committed = text
         else:
-            count = min(common, max(0, len(words) - self.hold_words))
+            if paused:
+                # A thinking pause is useful evidence, but recognition of the
+                # sentence tail can still change when speech resumes. Show an
+                # initial word even for short phrases; keep a longer tail for
+                # longer phrases and vocabulary commands.
+                count = max(1, len(words) - max(4, self.hold_words)) if words else 0
+            else:
+                count = min(common, max(0, len(words) - self.hold_words))
             if count:
                 candidate = text[: words[count - 1].end()]
                 if len(candidate) > len(self.committed):

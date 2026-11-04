@@ -94,10 +94,20 @@ class IncrementalSessionTests(unittest.TestCase):
         cancel_after_insert=False,
         in_window=False,
         cancel_draft=False,
+        pause_updates=False,
+        pause_mode=False,
+        spoken_punctuation=False,
     ):
         updates = queue.Queue()
         for i, _ in enumerate(replies):
-            updates.put(AudioUpdate(0, VOICE * 2, i == len(replies) - 1))
+            updates.put(
+                AudioUpdate(
+                    0,
+                    VOICE * 2,
+                    i == len(replies) - 1,
+                    paused=pause_updates and i < len(replies) - 1,
+                )
+            )
 
         class Capture(IncrementalCapture):
             def run(self, started):
@@ -121,6 +131,7 @@ class IncrementalSessionTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as folder,
             patch.dict("os.environ", {"XDG_CACHE_HOME": folder}),
             patch("dictadesk.audio.continuous.IncrementalCapture", Capture),
+            patch("dictadesk.audio.continuous.ContinuousCapture", Capture),
         ):
             callbacks, sent, previews, copied = queue.Queue(), [], [], []
 
@@ -141,6 +152,7 @@ class IncrementalSessionTests(unittest.TestCase):
                 Recognizer(),
             )
             session.microphone_problem = ""
+            session.preferences.spoken_punctuation = spoken_punctuation
 
             def inserted(text, target, done):
                 if deliver:
@@ -153,7 +165,7 @@ class IncrementalSessionTests(unittest.TestCase):
             if in_window:
                 session.record_in_window()
             else:
-                session.record_continuous(target=object())
+                session.record_continuous(target=object(), pause_mode=pause_mode)
             for _ in range(100):
                 try:
                     callbacks.get(timeout=0.05)()
@@ -168,6 +180,36 @@ class IncrementalSessionTests(unittest.TestCase):
                 self.assertEqual(copied, [] if cancel_draft else [(session.result.text, None)])
                 self.assertFalse(session.pending_text)
             return session, sent, previews
+
+    def test_thinking_pause_does_not_insert_period_or_duplicate_text(self):
+        for pause_mode in (True, False):
+            c, sent, _ = self.run_session(
+                ["I'm using Dictadesk.", "I'm using Dictadesk to write this comment."],
+                pause_updates=True,
+                pause_mode=pause_mode,
+            )
+            self.assertEqual(sent, ["I'm", " using DictaDesk to write this comment."])
+            self.assertEqual(c.result.text, "I'm using DictaDesk to write this comment.")
+
+    def test_long_pause_finalizes_only_the_pending_ending(self):
+        c, sent, _ = self.run_session(
+            ["This works.", "This works."],
+            pause_updates=True,
+            pause_mode=True,
+        )
+        self.assertEqual(sent, ["This", " works."])
+        self.assertEqual(c.result.text, "This works.")
+
+    def test_explicit_period_finishes_at_short_pause(self):
+        c, sent, _ = self.run_session(
+            ["This works period.", "This works period."],
+            pause_updates=True,
+            pause_mode=True,
+            spoken_punctuation=True,
+        )
+        self.assertEqual("".join(sent), "This works.")
+        self.assertEqual(sent[0], "This works.")
+        self.assertEqual(c.result.text, "This works.")
 
     def test_only_stable_prefix_and_final_suffix_are_delivered(self):
         c, sent, previews = self.run_session(
