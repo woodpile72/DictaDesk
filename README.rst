@@ -21,7 +21,7 @@ for Cinnamon. Local transcription is the default.
 
 Screenshots show the actual DictaDesk 1.0.8 interface in an isolated demonstration
 profile, with simulated readiness and sample text. No personal transcripts or
-credentials are shown. **This is a prerelease.**
+credentials are shown.
 
 Install
 -------

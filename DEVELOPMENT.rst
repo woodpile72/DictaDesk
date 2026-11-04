@@ -52,6 +52,7 @@ Packaging
 ---------
 
 Use even-numbered minor and patch releases; advance the patch by two for fixes.
+Publish 1.x versions as regular GitHub releases, marking the newest as Latest.
 
 From the reviewed release tag, use the Python 3.12 environment above::
 
@@ -78,7 +79,7 @@ language, hardware or accessibility support need corresponding verification.
 Release validation
 ------------------
 
-The 1.0 prerelease passed 156 unit tests and the isolated GTK/X11 checks above,
+The 1.0 release passed 156 unit tests and the isolated GTK/X11 checks above,
 including high contrast, notification actions, tray recovery and startup behavior.
 Package checks use a disposable dpkg root with a private HOME, D-Bus session and
 Xvfb display. A mount sandbox supplies the installed package at its normal paths
@@ -88,7 +89,7 @@ This does not establish clean-machine dependency installation or Wayland support
 
 The installer intentionally carries private upstream Python wheels. Lintian reports
 embedded libraries, upstream unstripped binaries and wheel-script packaging
-conventions; this is a GitHub-distributed prerelease, not a Debian archive package.
+conventions; this is a GitHub-distributed release, not a Debian archive package.
 The sticky model-cache directory permits separate private per-user subdirectories.
 Upstream binary contents and their license notices are preserved.
 

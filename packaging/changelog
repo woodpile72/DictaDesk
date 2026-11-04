@@ -27,6 +27,6 @@ dictadesk (1.0.2) unstable; urgency=medium
 
 dictadesk (1.0.0) unstable; urgency=medium
 
-  * First public prerelease: local and remote desktop dictation.
+  * First public release: local and remote desktop dictation.
 
  -- Erick Woods <woodpile72@users.noreply.github.com>  Wed, 04 Nov 2026 15:15:24 +0000
