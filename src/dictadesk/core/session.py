@@ -524,6 +524,8 @@ class Session:
         self.capture = capture = capture_type(prefs, directory("CACHE") / "recordings")
         if pause_mode:
             capture.limit = prefs.max_seconds
+            if not in_window:
+                capture.silence_stop_seconds = 20
         self.changed()
         first = True
         active_segment = None

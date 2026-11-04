@@ -11,8 +11,8 @@ Speak into a text field using a keyboard shortcut, or record in DictaDesk and
 copy the result. Built with Python, GTK 4 and libadwaita, with a tray workflow
 for Cinnamon. Local transcription is the default.
 
-`Download DictaDesk 1.0.4 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.4/dictadesk_1.0.4_amd64.deb>`_
-· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.0.4>`_
+`Download DictaDesk 1.0.6 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.6/dictadesk_1.0.6_amd64.deb>`_
+· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.0.6>`_
 · `Report an issue <https://github.com/woodpile72/DictaDesk/issues>`_
 
 .. image:: media/screenshots/main-window.png
@@ -28,11 +28,11 @@ Install
 
 Developed and tested on **Linux Mint 22.3 Cinnamon, X11, x86-64 (amd64)**.
 Download the Debian package and
-`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.4/SHA256SUMS>`_
+`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.6/SHA256SUMS>`_
 into the same folder, then run::
 
     sha256sum --ignore-missing -c SHA256SUMS
-    sudo apt install ./dictadesk_1.0.4_amd64.deb
+    sudo apt install ./dictadesk_1.0.6_amd64.deb
 
 Check that the checksum reports ``OK``, then launch **DictaDesk** from your
 application menu. Open Preferences and download a local model before recording.
@@ -47,11 +47,15 @@ Start dictating
    microphone test helps check input and recognition.
 2. Click a text field in another application. Press **Super+V**, speak, then
    press **Super+V** again or **Escape** to finish. Text is inserted at pauses.
+   Recording also stops after **20 seconds of continuous silence**. Speaking
+   again before then resets the timer.
 3. For longer dictation, **Super+Shift+V** starts continuous mode with stable
    text insertion while speaking. Press it again or **Escape** to finish.
 
 Short pauses show text without finalizing the sentence ending. By default,
 DictaDesk waits 4.5 seconds of silence to finalize it; stopping also finalizes it.
+The 20-second auto-stop applies only to the ordinary dictation shortcut;
+continuous mode and button recordings retain their existing stop controls.
 Both pause lengths are adjustable in Preferences. Explicit spoken punctuation
 is respected when that option is enabled. Recognition can still infer punctuation
 within a phrase. A few trailing words stay provisional so recognition can revise

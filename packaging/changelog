@@ -1,3 +1,10 @@
+dictadesk (1.0.6) unstable; urgency=medium
+
+  * Finish Super+V dictation after 20 seconds of continuous silence.
+  * Preserve the 4.5-second sentence pause and continuous-mode controls.
+
+ -- Erick Woods <woodpile72@users.noreply.github.com>  Wed, 04 Nov 2026 17:20:27 +0000
+
 dictadesk (1.0.4) unstable; urgency=medium
 
   * Separate short transcription pauses from 4.5-second sentence pauses.

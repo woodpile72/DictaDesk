@@ -96,6 +96,7 @@ def start():
     app.key_pressed("record")
     assert c.pause_dictation
     assert c.capture.limit == c.preferences.max_seconds
+    assert c.capture.silence_stop_seconds == 20
     app.key_released("record")  # Releasing the ordinary shortcut must not stop this mode.
     assert c.continuous and not c.capture.stop.is_set()
     until(lambda: len(sent) == 3, stop)
@@ -135,6 +136,7 @@ def finished_twice():
     app.session.preferences.continuous_live = False
     app.session.recognizer = FakeRecognizer()
     app.key_pressed("continuous")
+    assert app.session.capture.silence_stop_seconds == 0
     until(lambda: not app.session.busy, moved)
 
 

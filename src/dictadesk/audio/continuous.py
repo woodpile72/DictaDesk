@@ -67,6 +67,9 @@ class ContinuousCapture(Capture):
         self.timed_out = False
         self.segment = 0
         self.pause_emitted = False
+        self.silence_stop_seconds = 0
+        self.silence_stopped = False
+        self.silent_frames = 0
 
     def has_updates(self):
         return not self.phrases.empty()
@@ -156,6 +159,18 @@ class ContinuousCapture(Capture):
                 self.level = max((abs(v) for v in samples), default=0) / 32768
                 self.peak = max(self.peak, self.level)
                 chunks.put_nowait(block)
+                if self.silence_stop_seconds:
+                    # Count microphone time independently of phrase resets and
+                    # inference speed. Use the same noise threshold as splitting.
+                    rms = math.sqrt(sum(v * v for v in samples) / max(1, len(samples))) / 32768
+                    self.silent_frames = (
+                        0
+                        if rms >= self.prefs.silence_threshold
+                        else self.silent_frames + len(samples)
+                    )
+                    if self.silent_frames >= self.silence_stop_seconds * RATE:
+                        self.silence_stopped = True
+                        self.stop.set()
             except queue.Full:
                 self.problem = "Recognition could not keep up. Recording stopped; check the last phrase before continuing."
                 self.stop.set()

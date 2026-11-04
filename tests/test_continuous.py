@@ -20,8 +20,9 @@ SILENCE = bytes(3200)
 
 
 class CaptureBufferTests(unittest.TestCase):
-    def capture_buffers(self, blocks):
+    def capture_buffers(self, blocks, silence_stop_seconds=0):
         capture = ContinuousCapture(Preferences(), Path("unused"))
+        capture.silence_stop_seconds = silence_stop_seconds
 
         class Input:
             def __init__(self, **kwargs):
@@ -45,6 +46,34 @@ class CaptureBufferTests(unittest.TestCase):
             capture.run(lambda: None)
         self.assertTrue(capture.done.is_set())
         return capture
+
+    def test_silence_stop_is_twenty_seconds_from_last_speech_not_phrase_end(self):
+        for seconds, stopped in ((19.9, False), (20, True)):
+            blocks = [VOICE] * 2 + [SILENCE * 10] * 19 + [SILENCE * round((seconds - 19) * 10)]
+            capture = self.capture_buffers(blocks, silence_stop_seconds=20)
+            self.assertEqual(capture.silence_stopped, stopped)
+            self.assertFalse(capture.timed_out)
+            self.assertEqual(capture.problem, "")
+            updates = []
+            while capture.has_updates():
+                updates.append(capture.next_update())
+            self.assertTrue(updates[-1].final)
+            self.assertTrue(updates[-1].audio.startswith(VOICE * 2))
+
+    def test_resumed_speech_resets_auto_stop_and_continuous_mode_stays_open(self):
+        capture = self.capture_buffers(
+            [VOICE] * 2 + [SILENCE * 10] * 19 + [VOICE] * 2 + [SILENCE * 10] * 19,
+            silence_stop_seconds=20,
+        )
+        self.assertFalse(capture.silence_stopped)
+        capture = self.capture_buffers([SILENCE * 10] * 25)
+        self.assertFalse(capture.silence_stopped)
+
+    def test_initial_silence_and_noise_clicks_also_stop(self):
+        noisy = array("h", [10000] + [120, -120] * 799 + [120]).tobytes()
+        capture = self.capture_buffers([noisy * 10] * 20, silence_stop_seconds=20)
+        self.assertTrue(capture.silence_stopped)
+        self.assertFalse(capture.has_updates())
 
     def test_portaudio_cffi_buffer_is_copied_before_reuse(self):
         ffi = FFI()
@@ -263,6 +292,50 @@ class ContinuousSessionTests(unittest.TestCase):
         self.assertFalse(self.session.continuous)
         self.assertEqual(self.events, ["started", "stopped", "completed"])
         self.assertEqual(self.session.notice, "")
+
+    def test_auto_stop_only_for_pause_shortcut_mode(self):
+        for pause_mode, in_window, expected in (
+            (True, False, 20),
+            (False, False, 0),
+            (True, True, 0),
+        ):
+            self.worker.replies = iter(["Hello", "world", "again"])
+            with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):
+                self.session.record_continuous(
+                    target=object(), pause_mode=pause_mode, in_window=in_window
+                )
+                self.assertEqual(self.session.capture.silence_stop_seconds, expected)
+                self.drain()
+
+    def test_auto_stop_finishes_and_notifies_without_duplicate_insertion(self):
+        closed = []
+
+        class Input:
+            def __init__(self, **kwargs):
+                self.callback = kwargs["callback"]
+
+            def __enter__(self):
+                for block in [VOICE] * 2 + [SILENCE * 10] * 20:
+                    self.callback(block, len(block) // 2, None, None)
+                return self
+
+            def __exit__(self, *_):
+                closed.append(True)
+
+        self.worker.request = lambda *_args, **_kwargs: {"text": "Hello there."}
+        with (
+            patch("dictadesk.audio.continuous.ContinuousCapture", ContinuousCapture),
+            patch("sounddevice.RawInputStream", Input),
+            patch("dictadesk.audio.continuous.resolve", return_value=None),
+        ):
+            self.session.record_continuous(target=object(), pause_mode=True)
+            self.drain()
+        self.assertEqual(closed, [True])
+        self.assertEqual(self.sent, ["Hello", " there."])
+        self.assertEqual(self.session.result.text, "Hello there.")
+        self.assertEqual(self.session.pending_text, "")
+        self.assertFalse(self.session.cancelled.is_set())
+        self.assertEqual(self.events, ["started", "stopped", "completed"])
 
     def test_window_collects_multiple_phrases_then_copies_once(self):
         with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):

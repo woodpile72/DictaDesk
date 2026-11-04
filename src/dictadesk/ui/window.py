@@ -306,7 +306,7 @@ class Window(Adw.ApplicationWindow):
             )
         elif c.pause_dictation:
             self.instruction.set_text(
-                f"Pause to insert text. Press {shortcut} or Escape to finish."
+                f"Pause to insert text. Stops after 20 seconds of silence. Press {shortcut} or Escape to finish."
             )
         elif c.continuous:
             self.instruction.set_text(
