@@ -4,6 +4,25 @@
 
 Written 2026-11-08. The project on the development computer is **`/home/erick/Projects/Open/DictaDesk`**. The capitalization is **DictaDesk**, not `dictadesk`; Linux paths are case-sensitive. The user plans to copy the whole project directory to the laptop.
 
+## Transfer cleanup — completed after this handoff was written
+
+**The transfer tree has been reduced from roughly 6.5 GB to about 60 MiB.** The latest deb accounts for about 52 MiB, Git history about 5.3 MiB, and the retained test-evidence logs about 148 KiB.
+
+Removed generated `.build` exports/wheels, extracted QA packages, downloaded QA models/voices, the nonportable `.venv`, old releases, Python build metadata/bytecode and lint caches. Source, tests, Git history, this handoff, the latest verified deb/checksums/usage guide in `dist/`, and the final `.qa/current` evidence logs remain. Installed app models/preferences outside this project were not touched.
+
+The old offline wheelhouse, exported build directories, QA test models and sandbox wrapper scripts mentioned in historical instructions below are now absent. Recreate a local virtual environment, download locked build dependencies as needed, and obtain test models through the existing opt-in workflow. The laptop's installed model cache is separate from those deleted QA fixtures.
+
+Run this **on the laptop** to pull from the home computer and delete stale files left by the earlier oversized copy:
+
+```bash
+mkdir -p ~/Projects/Open/DictaDesk
+rsync -ah --delete --partial --info=progress2 \
+  erick@100.85.157.118:/home/erick/Projects/Open/DictaDesk/ \
+  ~/Projects/Open/DictaDesk/
+```
+
+Both machines use the same capitalized project path. `--delete` mirrors only the destination DictaDesk project directory, including removing old caches that no longer exist at the source. Keep both trailing slashes.
+
 ## 1. What we are doing right now
 
 We are developing and manually testing an **unpublished DictaDesk 1.2.0** on Linux Mint Cinnamon/X11. The user is testing installed Debian packages on a different computer, a laptop at the lake house. Remote debugging through pasted logs has been cumbersome, so development is moving onto that laptop.
@@ -286,13 +305,13 @@ Paths in the table are relative to `src/dictadesk/` unless fully prefixed. GUI w
 - Temporary recognition workspaces are removed after operations. Do not add permanent raw mic recordings merely to debug.
 - Package upgrades preserve downloads/settings. Removing/purging the package removes its dedicated downloaded-model cache for all users, but not user preferences/keyring entries.
 
-The development folder was about **6.1 GB**, largely ignored test/build caches, repeated exported builds and environments. Copying the whole folder works, but this is much larger than the source itself. `.git`, `src`, `tests`, `scripts`, `requirements.lock`, packaging/data/docs and this handoff are the important working materials. `.build`, `.qa`, `dist`, `.venv`, `__pycache__` and `.ruff_cache` are ignored development artifacts. Keeping `.qa` preserves test logs and downloaded test models but is not required to run the installed app.
+Before cleanup the development folder was over **6 GB**, largely ignored test/build caches, repeated exported builds and environments. Those generated files have now been removed; the complete transfer tree is about **60 MiB** including the latest deb. `.git`, `src`, `tests`, `scripts`, `requirements.lock`, packaging/data/docs and this handoff are the important working materials. `.build`, `.qa`, `dist`, `.venv`, `__pycache__` and `.ruff_cache` are ignored development artifacts. Keeping `.qa` preserves test logs and downloaded test models but is not required to run the installed app.
 
-**Do not assume a copied virtual environment is portable.** Recreate it on the laptop using the distro's Python 3.12 and system GI/Cairo libraries. Creating `--clear` below clears the copied `.venv`, not application preferences/models or source:
+**No virtual environment is included after cleanup.** Create a fresh one on the laptop using the distro's Python 3.12 and system GI/Cairo libraries:
 
 ```bash
 cd ~/Projects/Open/DictaDesk
-python3 -m venv --clear --system-site-packages .venv
+python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install --require-hashes -r requirements.lock
 .venv/bin/python -m pip install --no-deps -e .
 .venv/bin/python -m pip install ruff onnx
@@ -383,7 +402,7 @@ Some build logs show pip complaints about unrelated system scipy/types packages 
 
 The previous agent extracted a deb under `.qa/package-...`, then used root-created `bwrap` only as a mount sandbox. The actual test process runs as the normal user with a private HOME/bus/Xvfb and **network disabled**. It binds the extracted package at `/usr/lib/dictadesk`, launcher at `/usr/bin/dictadesk`, and its root-owned sticky model cache at `/var/cache/dictadesk`. This tests installed paths without replacing the user's real installed package.
 
-Look at `.qa/current/run-setup-package` and the later noise-package wrapper if the ignored QA tree was copied. Important details:
+The `.qa/current/run-setup-package` and noise-package wrapper were generated during validation and removed in the transfer cleanup. Recreate the isolated wrapper from the mount/test requirements above if needed. Important details:
 
 - Top `/var/cache/dictadesk` must have root ownership and package-created sticky permissions. Ordinary-user namespace mapping can otherwise make the model-cache safety check fail.
 - `PYTHONPATH=/usr/lib/dictadesk:/usr/lib/dictadesk/vendor` selects extracted code for test scripts; actual launcher/worker bootstrap paths are tested too.
