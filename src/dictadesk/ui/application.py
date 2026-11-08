@@ -622,8 +622,11 @@ class Application(Adw.Application):
         if target:
             from ..core.models import downloaded
 
-            if c.busy or not downloaded(c.preferences.quantization, c.preferences.local_model):
-                self.command_feedback("Download a local model in Preferences first.")
+            if c.busy:
+                return
+            if not downloaded(c.preferences.quantization, c.preferences.local_model):
+                self.show_preferences("commands")
+                self.preferences_dialog.open_feature_setup("commands")
                 return
         # Disable immediately, even if a settings/model operation is pending.
         self.handsfree.override_disabled = True

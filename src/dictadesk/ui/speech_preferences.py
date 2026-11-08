@@ -2,10 +2,11 @@
 """Optional speech controls on the independent Talk Back preferences tab."""
 
 from dataclasses import replace
+import shutil
 import time
 
-from ..core.tts import ENGINES, VOICES
-from .gtk import Adw, Gtk
+from ..core.tts import ENGINES, VOICES, espeak_available
+from .gtk import Adw, Gio, Gtk
 from .widgets import experimental_banner
 
 
@@ -16,6 +17,9 @@ class SpeechPreferences:
         self.banner_group = Adw.PreferencesGroup()
         self.banner = experimental_banner()
         self.banner_group.add(self.banner)
+        self.setup_group = Adw.PreferencesGroup(title="Setup Required")
+        self.installing = False
+        self.setting_up = False
         self.group = Adw.PreferencesGroup(
             title="Talk Back — Experimental",
             description="Optional spoken wake acknowledgment. Off by default. Voices are downloaded only when you choose Download; speech stays on this computer.",
@@ -40,7 +44,7 @@ class SpeechPreferences:
         self.description = Adw.ActionRow(title="About this voice", use_markup=False)
         self.group.add(self.description)
         self.status = Adw.ActionRow(title="Voice setup", use_markup=False)
-        self.group.add(self.status)
+        self.setup_group.add(self.status)
         self.download = Gtk.Button(label="Download Engine & Voice", valign=Gtk.Align.CENTER)
         self.download.connect(
             "clicked",
@@ -50,6 +54,13 @@ class SpeechPreferences:
         self.cancel = Gtk.Button(label="Cancel Download", valign=Gtk.Align.CENTER)
         self.cancel.connect("clicked", lambda *_: app.speech.download_cancel.set())
         self.status.add_suffix(self.cancel)
+        self.install = Gtk.Button(label="Install eSpeak NG…", valign=Gtk.Align.CENTER)
+        self.install.add_css_class("suggested-action")
+        self.install.connect("clicked", self.install_espeak)
+        self.status.add_suffix(self.install)
+        self.recheck = Gtk.Button(label="Check Again", valign=Gtk.Align.CENTER)
+        self.recheck.connect("clicked", self.check_installation)
+        self.status.add_suffix(self.recheck)
         buttons = Gtk.FlowBox(
             selection_mode=Gtk.SelectionMode.NONE,
             column_spacing=8,
@@ -75,7 +86,7 @@ class SpeechPreferences:
         self.group.add(self.help)
         self.engine.connect("notify::selected", self.engine_changed)
         self.model.connect("notify::selected", lambda *_: self.refresh())
-        self.enabled.connect("notify::active", lambda *_: self.refresh())
+        self.enabled.connect("notify::active", self.enabled_changed)
         self.refresh()
 
     def engine_id(self):
@@ -99,7 +110,64 @@ class SpeechPreferences:
         )
 
     def engine_changed(self, *_):
+        espeak_available.cache_clear()
+        self.app.speech.problem = self.app.speech.notice = ""
         self.set_models()
+        self.refresh()
+        if (
+            not self.setting_up
+            and self.enabled.get_active()
+            and not self.app.speech.store.ready(self.engine_id(), self.model_id())
+        ):
+            self.enabled.set_active(False)
+            self.app.preferences_dialog.open_feature_setup("tts")
+
+    def enabled_changed(self, *_):
+        if (
+            not self.setting_up
+            and self.enabled.get_active()
+            and not self.app.speech.store.ready(self.engine_id(), self.model_id())
+        ):
+            self.enabled.set_active(False)
+            self.app.preferences_dialog.open_feature_setup("tts")
+        self.refresh()
+
+    def check_installation(self, *_):
+        espeak_available.cache_clear()
+        if espeak_available():
+            self.app.speech.problem = ""
+            self.app.speech.retry_at = 0
+        self.app.refresh()
+        self.refresh()
+
+    def install_espeak(self, *_):
+        if self.installing or self.app.session.busy:
+            return
+        installer = shutil.which("apturl")
+        if not installer:
+            self.app.speech.problem = "Install espeak-ng using your system's Software Manager, then choose Check Again. This desktop has no APT URL installer."
+            self.refresh()
+            return
+        try:
+            # The desktop installer owns its confirmation/authentication UI.
+            # Fixed package URI only; DictaDesk itself never runs as root.
+            process = Gio.Subprocess.new([installer, "apt:espeak-ng"], Gio.SubprocessFlags.NONE)
+            self.installing = True
+
+            def finished(process, result):
+                try:
+                    process.wait_finish(result)
+                except Exception:
+                    self.app.speech.problem = "The installer did not finish. Install espeak-ng using Software Manager, then choose Check Again."
+                finally:
+                    self.installing = False
+                    if not self.app.shutting_down:
+                        self.check_installation()
+
+            process.wait_async(None, finished)
+        except Exception:
+            self.installing = False
+            self.app.speech.problem = "Could not open the system installer. Install espeak-ng using Software Manager, then choose Check Again."
         self.refresh()
 
     def values(self):
@@ -150,18 +218,31 @@ class SpeechPreferences:
             runtime_installed, downloads_exist = False, False
             cache_problem = str(exc)
         self.description.set_subtitle(VOICES[model].description)
-        self.enabled.set_sensitive(ready or self.enabled.get_active())
+        self.setup_group.set_title("Voice Ready" if ready else "Setup Required")
+        self.status.set_title(
+            VOICES[model].name
+            if ready
+            else "Install eSpeak NG to use this voice"
+            if engine == "espeak"
+            else "Download engine and voice to enable Talk Back"
+        )
+        self.enabled.set_sensitive(not c.busy)
         self.engine.set_sensitive(not busy)
         self.model.set_sensitive(not busy)
         self.download.set_visible(engine == "piper" and not speech.downloading)
         self.download.set_sensitive(not ready and not busy and not c.busy and not cache_problem)
         self.download.set_label("Downloaded" if ready else "Download")
+        self.download.add_css_class("suggested-action")
         self.download.set_tooltip_text(
             "Download the selected voice"
             if runtime_installed
             else "Download the optional engine and selected voice"
         )
         self.cancel.set_visible(speech.downloading)
+        self.install.set_visible(engine == "espeak" and not ready)
+        self.install.set_sensitive(not self.installing and not c.busy)
+        self.recheck.set_visible(engine == "espeak" and not ready)
+        self.recheck.set_sensitive(not c.busy)
         self.preview.set_sensitive(
             ready
             and not busy
@@ -187,12 +268,12 @@ class SpeechPreferences:
             message = cache_problem
         elif speech.problem:
             message = speech.problem
+        elif not ready and engine == "espeak":
+            message = "This system voice requires the espeak-ng package. Choose Install eSpeak NG and confirm in the system installer, then Check Again. No restart is needed. You can also switch back to Piper."
+        elif not ready:
+            message = f"Talk Back cannot speak until {VOICES[model].name} is downloaded. {VOICES[model].description} Choose Download here; ordinary dictation remains available."
         elif speech.notice:
             message = speech.notice
-        elif ready:
-            message = "Voice ready. Test uses the choices here; Save applies them to wake acknowledgment."
-        elif engine == "espeak":
-            message = "System eSpeak NG is not installed. Install espeak-ng from Software Manager and restart DictaDesk, or choose Piper and download a voice."
         else:
-            message = "Not downloaded. Download the engine and selected voice before enabling spoken acknowledgment. Dictation does not need these files."
+            message = "Voice ready. Test uses the choices here; Save applies them to wake acknowledgment."
         self.status.set_subtitle(message)

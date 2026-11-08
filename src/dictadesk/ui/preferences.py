@@ -21,6 +21,7 @@ from ..desktop.keyboard import Chord
 from .gtk import Adw, Gdk, Gtk
 from .widgets import experimental_banner, text
 from .speech_preferences import SpeechPreferences
+from .feature_setup import FeatureSetup
 
 
 class PreferencesDialog:
@@ -73,6 +74,8 @@ class PreferencesDialog:
         self.compute_cancel = threading.Event()
         self.compute_capability = None
         self.model_guide = None
+        self.feature_setup = None
+        self.setting_up = False
         self.connection_generation = 0
         self.connection_busy = False
         self.storage_busy = False
@@ -289,13 +292,23 @@ class PreferencesDialog:
         self.commands_requirement = Adw.PreferencesGroup(
             title="Local transcription required",
             visible=False,
-            description="Command &amp; Control uses the local speech-recognition model. Choose Local on the Dictation tab to enable it.",
+            description="Command &amp; Control needs local speech recognition. Enable hands-free commands to choose an engine and model in guided setup.",
         )
         self.pages["commands"].add(self.commands_requirement)
         self.voice_banner_group = Adw.PreferencesGroup()
         self.voice_banner = experimental_banner()
         self.voice_banner_group.add(self.voice_banner)
         self.pages["commands"].add(self.voice_banner_group)
+        self.command_setup = Adw.PreferencesGroup(
+            title="Setup Required — Download a Speech Model"
+        )
+        self.command_setup_row = Adw.ActionRow(use_markup=False)
+        self.command_download = Gtk.Button(label="Set Up…", valign=Gtk.Align.CENTER)
+        self.command_download.add_css_class("suggested-action")
+        self.command_download.connect("clicked", lambda *_: self.open_feature_setup("commands"))
+        self.command_setup_row.add_suffix(self.command_download)
+        self.command_setup.add(self.command_setup_row)
+        self.pages["commands"].add(self.command_setup)
         self.voice_group = Adw.PreferencesGroup(
             title="Command &amp; Control",
             description="Keeps the microphone listening locally. Say the wake phrase and command together, or say the wake phrase, wait for the acknowledgment, then speak a supported command. Open Command &amp; Control Help for the available controls. Dictation takes priority.",
@@ -450,13 +463,32 @@ class PreferencesDialog:
         # Stable dictation opens first; experiments have their own tabs.
         self.speech_settings = SpeechPreferences(app)
         self.pages["tts"].add(self.speech_settings.banner_group)
+        self.pages["tts"].add(self.speech_settings.setup_group)
         self.pages["tts"].add(self.speech_settings.group)
+        hands_free.connect("notify::active", self.hands_free_changed)
         self.backend_visibility()
         self.dialog.connect("close-request", self.closed)
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.key_pressed)
         self.dialog.add_controller(keys)
         self.check_compute()
+
+    def open_feature_setup(self, kind):
+        if self.feature_setup is None:
+            if kind == "commands":
+                self.controls["hands_free"].set_active(False)
+            else:
+                self.speech_settings.enabled.set_active(False)
+            self.feature_setup = FeatureSetup(self, kind)
+        self.feature_setup.present()
+
+    def hands_free_changed(self, row, *_):
+        if self.setting_up or not row.get_active():
+            return
+        local = self.controls["backend"][0].get_selected() == 0
+        if not local or not downloaded(self.selected_precision(), self.selected_model()):
+            row.set_active(False)
+            self.open_feature_setup("commands")
 
     @staticmethod
     def format_silence_stop(row):
@@ -589,12 +621,10 @@ class PreferencesDialog:
             and device_values[device_row.get_selected()] == c.preferences.device
         )
         cached = downloaded(precision, model)
-        self.voice_banner_group.set_visible(local)
-        self.voice_group.set_visible(local)
+        self.voice_banner_group.set_visible(True)
+        self.voice_group.set_visible(True)
         self.commands_requirement.set_visible(not local)
-        self.controls["hands_free"].set_sensitive(
-            local and (cached or self.controls["hands_free"].get_active())
-        )
+        self.controls["hands_free"].set_sensitive(not c.busy)
         self.refresh_voice_status(cached)
         self.setup_group.set_visible(local and not cached)
         self.setup_row.set_title(f"{LOCAL_MODELS[model]['name']} isn’t downloaded")
@@ -602,6 +632,12 @@ class PreferencesDialog:
             f"Download approximately {LOCAL_MODELS[model]['sizes'][precision]}. This is a one-time download; your audio stays on this computer."
         )
         self.setup_download.set_sensitive(not c.busy)
+        self.command_setup.set_visible(not local or not cached)
+        self.command_setup_row.set_title(f"{LOCAL_MODELS[model]['name']} is required")
+        self.command_setup_row.set_subtitle(
+            f"Hands-free commands cannot listen until this speech model is downloaded. Download approximately {LOCAL_MODELS[model]['sizes'][precision]}, once. This is shared with dictation."
+        )
+        self.command_download.set_sensitive(not c.busy)
         self.download_button.set_sensitive(local and not c.busy and not cached)
         self.download_row.set_subtitle(
             "Installed · Download approximately " + LOCAL_MODELS[model]["sizes"][precision]
@@ -904,14 +940,17 @@ class PreferencesDialog:
             data["language"] = self.language.get_text().strip()
             data["wake_phrase"] = self.wake_phrase.get_text().strip()
             data.update(self.speech_settings.values())
-            if (
-                data["backend"] == "local"
-                and data["hands_free"]
-                and not downloaded(data["quantization"], data["local_model"])
+            if data["tts_enabled"] and not self.app.speech.store.ready(
+                data["tts_engine"], data["tts_model"]
             ):
-                raise ValueError(
-                    "Download the selected local model before enabling hands-free commands."
-                )
+                self.open_feature_setup("tts")
+                return
+            if data["hands_free"] and (
+                data["backend"] != "local"
+                or not downloaded(data["quantization"], data["local_model"])
+            ):
+                self.open_feature_setup("commands")
+                return
             data["vocabulary"] = self.rules
             prefs = Preferences(**data).validate()
             chords = [
@@ -932,6 +971,8 @@ class PreferencesDialog:
 
     def refresh(self):
         self.speech_settings.refresh()
+        if self.feature_setup:
+            self.feature_setup.refresh()
         if tuple(self.app.session.devices) != self.device_snapshot:
             self.populate_devices()
         busy = self.app.session.busy
@@ -1005,6 +1046,7 @@ class PreferencesDialog:
     def offer_model_download(self):
         if (
             self.closed_flag
+            or self.stack.get_visible_child_name() != "dictation"
             or self.app.shutting_down
             or self.model_prompt
             or self.app.session.busy

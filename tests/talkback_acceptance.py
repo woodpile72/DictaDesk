@@ -20,6 +20,7 @@ from test_tts import Worker
 
 class Store:
     downloaded = False
+    espeak_installed = True
 
     def root(self):
         return Path(os.environ["HOME"]) / "tts-fixture"
@@ -31,7 +32,7 @@ class Store:
         return self.downloaded
 
     def ready(self, engine, model):
-        return engine == "espeak" or self.downloaded
+        return self.espeak_installed if engine == "espeak" else self.downloaded
 
     def install(self, model, cancel, progress):
         install_started.set()
@@ -137,10 +138,27 @@ def download():
     s = p.speech_settings
     assert p.stack.get_visible_child_name() == "tts"
     assert s.banner.get_mapped()
-    assert not s.enabled.get_active() and not s.enabled.get_sensitive()
+    assert not s.enabled.get_active() and s.enabled.get_sensitive()
     assert s.phrase.get_text() == "Hello"
     assert s.download.get_sensitive() and not s.preview.get_sensitive()
     capture("talkback")
+    s.enabled.set_active(True)
+    wizard = p.feature_setup
+    assert wizard and wizard.kind == "tts"
+    assert not s.enabled.get_active() and not wizard.use.get_sensitive()
+    assert wizard.engine_id() == "piper"
+    later(cancel_setup)
+
+
+def cancel_setup():
+    app.preferences_dialog.feature_setup.dialog.close()
+    later(after_cancel)
+
+
+def after_cancel():
+    p = app.preferences_dialog
+    assert p.feature_setup is None and not p.speech_settings.enabled.get_active()
+    s = p.speech_settings
     s.download.emit("clicked")
     later(downloading)
 

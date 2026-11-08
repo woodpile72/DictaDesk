@@ -69,8 +69,9 @@ def preferences():
     app.session.preferences.hands_free = False
     p.wake_phrase.set_text("Computer")
     p.controls["backend"][0].set_selected(1)
-    assert not p.voice_group.get_visible()
-    assert not p.voice_banner_group.get_visible()
+    assert p.voice_group.get_visible()
+    assert p.voice_banner_group.get_visible()
+    assert p.commands_requirement.get_visible()
     p.controls["backend"][0].set_selected(0)
     p.wake_phrase.set_text("  !!! ")
     with patch.object(app, "save_preferences") as save:
@@ -80,7 +81,7 @@ def preferences():
     p.wake_phrase.set_text("Hello Desk")
     with patch("dictadesk.ui.preferences.downloaded", return_value=False):
         p.refresh_backend()
-        assert not p.controls["hands_free"].get_sensitive()
+        assert p.controls["hands_free"].get_sensitive()
     p.refresh_backend()
     p.controls["hands_free"].set_active(True)
 
