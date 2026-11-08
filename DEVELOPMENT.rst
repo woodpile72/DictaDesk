@@ -274,3 +274,8 @@ advertised socket is missing or cannot be connected to within the startup bound,
 GTK starts without its broken accessibility bridge, field tracking stays disabled,
 and Preferences/notifications explain clipboard recovery. This does not change
 system accessibility settings or restart other applications' services.
+
+Immediate shutdown also waits for any native microphone device/settings check to
+leave PortAudio before interpreter teardown. Credential lookup can still finish
+independently. The stale-bus entrypoint check exercises an immediate tray shutdown,
+and passes repeatedly against the installed runtime after this synchronization.

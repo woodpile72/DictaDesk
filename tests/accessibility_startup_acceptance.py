@@ -63,7 +63,7 @@ def launch():
     global process
     process = subprocess.Popen(
         [sys.executable, "-m", "dictadesk", "--background"],
-        env={**os.environ, "GTK_A11Y": "atspi"},
+        env={**os.environ, "GTK_A11Y": "atspi", "PYTHONFAULTHANDLER": "1"},
     )
     GLib.timeout_add(100, check)
     return False

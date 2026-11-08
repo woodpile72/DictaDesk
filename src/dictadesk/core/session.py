@@ -36,6 +36,7 @@ class Session:
         self.microphone_problem = "Checking microphone…"
         self.devices = []
         self.device_scan = 0
+        self.device_checks = []
         self.credential_available = False
         self.capture = None
         self.cancelled = threading.Event()
@@ -98,6 +99,11 @@ class Session:
         return "Ready" if self.can_record else "Setup needed"
 
     def scan_devices(self):
+        if self.closing:
+            return
+        native_finished = threading.Event()
+        self.device_checks = [event for event in self.device_checks if not event.is_set()]
+        self.device_checks.append(native_finished)
         self.device_scan += 1
         generation = self.device_scan
         prefs = self.preferences
@@ -107,16 +113,19 @@ class Session:
         def scan():
             devices, problem, credential = [], "", False
             cleanup_problem = ""
-            if clean_recordings:
-                try:
-                    cleanup_abandoned(directory("CACHE") / "recordings")
-                except (OSError, ValueError):
-                    cleanup_problem = "Could not clean up old temporary recordings. Check the recording cache permissions."
             try:
-                devices = microphones()
-                check(prefs)
-            except Exception as exc:
-                problem = "Microphone unavailable: " + str(exc)
+                if clean_recordings:
+                    try:
+                        cleanup_abandoned(directory("CACHE") / "recordings")
+                    except (OSError, ValueError):
+                        cleanup_problem = "Could not clean up old temporary recordings. Check the recording cache permissions."
+                try:
+                    devices = microphones()
+                    check(prefs)
+                except Exception as exc:
+                    problem = "Microphone unavailable: " + str(exc)
+            finally:
+                native_finished.set()
             if prefs.backend == "openai":
                 try:
                     credential = bool(read_key())
@@ -814,8 +823,13 @@ class Session:
         if self.busy:
             self.cancel()
         thread = self.thread
+        device_checks = tuple(self.device_checks)
 
         def cleanup():
+            # PortAudio teardown must not race an in-flight device/settings call.
+            # Credential probes run after this native section and need not delay exit.
+            for native_finished in device_checks:
+                native_finished.wait()
             if self.handsfree:
                 self.handsfree.join()
             self.recognizer.close()
