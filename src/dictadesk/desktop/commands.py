@@ -11,6 +11,8 @@ from pathlib import Path
 from datetime import datetime
 
 from ..ui.gtk import Gio, GLib
+from ..core.application_roles import APPLICATION_ROLES
+from .applications import preferred_applications
 from .lock import screen_service
 
 NORMAL_VOLUME = 65536
@@ -395,6 +397,20 @@ class DesktopCommands:
     def probe(self):
         """Read-only availability for help. Failures stay visible, never succeed silently."""
         result = {"applications": "", "clipboard": "", "format": "", "commands": ""}
+        try:
+            applications = Gio.AppInfo.get_all()
+            for role in APPLICATION_ROLES:
+                key = "application-" + role.ident
+                try:
+                    preferred_applications(role, applications)
+                    result[key] = ""
+                except (ValueError, GLib.Error) as exc:
+                    result[key] = str(exc)
+        except Exception:
+            for role in APPLICATION_ROLES:
+                result["application-" + role.ident] = (
+                    "Preferred application could not be checked."
+                )
         try:
             names = self.names()
         except GLib.Error:

@@ -110,7 +110,8 @@ class ParsingTests(unittest.TestCase):
             self.assertEqual(command(text)[0], "unknown")
         self.assertEqual(match_applications(("firefox",), apps), [apps[0]])
         apps[0].name = "Firefox Browser"
-        self.assertEqual(len(match_applications(("firefox",), apps)), 2)
+        # The stable desktop ID resolves Firefox even when its menu label changes.
+        self.assertEqual(match_applications(("firefox",), apps), [apps[0]])
         for query in (("fire",), ("hidden",), ("firefox", "rm", "rf")):
             self.assertFalse(match_applications(query, apps))
 

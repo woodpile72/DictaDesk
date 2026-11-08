@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import re
 import unicodedata
 
+from .application_roles import APPLICATION_ROLES
+
 CATEGORIES = (
     "Audio",
     "Display and Power",
@@ -314,15 +316,29 @@ REGISTRY = (
             ),
         )
     ),
+    *(
+        entry(
+            "open-" + role.ident,
+            "Applications",
+            "Open " + role.name,
+            f"Open the preferred {role.name} configured in your desktop's Preferred Applications settings.",
+            (f"{verb} {name}" for verb in ("open", "launch") for name in role.spoken_names),
+            "open",
+            tuple(role.aliases[0].split()),
+            examples=tuple("Open " + name for name in role.aliases[:2]),
+            capability="application-" + role.ident,
+        )
+        for role in APPLICATION_ROLES
+    ),
     entry(
         "open",
         "Applications",
         "Open application",
-        "Launch an installed application by desktop-entry name. Ambiguous or approximate names require confirmation. Installed visible desktop entries form the application allowlist.",
+        "Launch a specific installed application by its display name, executable name or desktop-entry ID (for example Nemo, even when its menu label is Files). Ambiguous or approximate names require confirmation.",
         ("open", "launch"),
         "open",
         parameter="application",
-        examples=("Open Firefox", "Open terminal", "Open file manager"),
+        examples=("Open Firefox", "Open Nemo", "Open Xed"),
         capability="applications",
     ),
     entry(

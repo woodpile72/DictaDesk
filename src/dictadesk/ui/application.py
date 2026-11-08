@@ -12,6 +12,7 @@ from ..core.credentials import save_key
 from ..core.session import Session
 from ..core.transcript import has_content
 from ..core.handsfree import HandsFree
+from ..core.application_roles import application_role
 from ..core.voice_commands import diagnostic, exact_application_match, match_applications
 from ..core.diagnostics import event, failure
 from ..core.models import LOCAL_MODELS
@@ -23,6 +24,7 @@ from ..desktop.startup import set_enabled
 from ..desktop.tray import Tray
 from ..desktop.lock import ScreenLock
 from ..desktop.commands import DesktopCommands
+from ..desktop.applications import preferred_applications
 from .gtk import Adw, Gdk, Gio, GLib, Gtk
 from .microphone import MicrophoneDialog
 from .preferences import PreferencesDialog
@@ -659,24 +661,14 @@ class Application(Adw.Application):
         if not self.handsfree.valid(generation):
             return
         applications = Gio.AppInfo.get_all()
-        if query == ("file", "manager"):
-            default = Gio.AppInfo.get_default_for_type("inode/directory", False)
-            matches = [default] if default else []
-        elif query == ("terminal",):
-            matches = [
-                app
-                for app in applications
-                if app.get_id()
-                in (
-                    "org.gnome.Terminal.desktop",
-                    "gnome-terminal.desktop",
-                    "xfce4-terminal.desktop",
-                    "org.kde.konsole.desktop",
-                    "mate-terminal.desktop",
-                )
-            ][:1]
-            if not matches:
-                matches = match_applications(query, applications)
+        role = application_role(query)
+        if role:
+            try:
+                matches = preferred_applications(role, applications)
+            except (ValueError, GLib.Error) as exc:
+                self.command_feedback(str(exc), heard=heard, query=query)
+                self.handsfree.complete(generation)
+                return
         else:
             matches = match_applications(query, applications)
 
@@ -695,10 +687,7 @@ class Application(Adw.Application):
         if not matches:
             self.command_feedback("Application not found.", heard=heard, query=query)
             self.handsfree.complete(generation)
-        elif len(matches) == 1 and (
-            query in (("file", "manager"), ("terminal",))
-            or exact_application_match(query, matches[0])
-        ):
+        elif len(matches) == 1 and (role or exact_application_match(query, matches[0])):
             launch(matches[0])
         else:
             dialog = CommandChooser(

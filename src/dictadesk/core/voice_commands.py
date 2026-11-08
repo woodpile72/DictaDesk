@@ -56,6 +56,14 @@ def command(text, preferences=None):
 
 def application_names(app):
     names = {words(app.get_display_name()), words(app.get_name())}
+    ident = app.get_id()
+    if ident:
+        stem = Path(ident).name.removesuffix(".desktop")
+        names.add(words(stem))
+        # Flatpak/wrapper entries often expose only a generic menu label and
+        # executable. Their desktop ID still identifies the actual application.
+        if "." in stem:
+            names.add(words(stem.rsplit(".", 1)[-1]))
     executable = getattr(app, "get_executable", lambda: None)()
     if executable:
         executable = Path(executable).name
@@ -78,6 +86,13 @@ def application_names(app):
     return {name for name in names if name}
 
 
+def launchable_application(app):
+    # OnlyShowIn controls menus, not whether an installed app can launch.
+    if hasattr(app, "get_nodisplay"):
+        return not (app.get_nodisplay() or app.get_is_hidden())
+    return app.should_show()
+
+
 def exact_application_match(query, app):
     return query in application_names(app)
 
@@ -89,12 +104,7 @@ def match_applications(query, applications):
     exact, suggestions = {}, {}
     spoken = " ".join(query)
     for app in applications:
-        # OnlyShowIn controls menus, not whether an installed app can launch.
-        # Keep explicitly hidden/helper desktop entries out of voice results.
-        if hasattr(app, "get_nodisplay"):
-            if app.get_nodisplay() or app.get_is_hidden():
-                continue
-        elif not app.should_show():
+        if not launchable_application(app):
             continue
         ident = app.get_id()
         if not ident:
