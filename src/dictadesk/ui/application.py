@@ -15,6 +15,7 @@ from ..core.voice_commands import diagnostic, exact_application_match, match_app
 from ..core.settings import private_write
 from ..core.models import LOCAL_MODELS
 from ..desktop.delivery import destination, paste
+from ..desktop.accessibility import prepare_accessibility
 from ..desktop.destination import DestinationTracker, Target
 from ..desktop.keyboard import Keyboard
 from ..desktop.startup import set_enabled
@@ -51,6 +52,7 @@ class Application(Adw.Application):
         self.usage_window = None
         self.alert_windows = set()
         self.preferences_dialog = self.microphone_dialog = None
+        self.accessibility_problem = ""
         self.shortcut_problem = ""
         self.escape_problem = ""
         self.shutting_down = False
@@ -142,7 +144,10 @@ class Application(Adw.Application):
             else:
                 try:
                     self.keyboard = Keyboard(self.key_pressed, self.key_released)
-                    self.destinations = DestinationTracker(self.keyboard.connection)
+                    self.destinations = DestinationTracker(
+                        self.keyboard.connection,
+                        accessibility=not bool(self.accessibility_problem),
+                    )
                     self.bind_shortcuts()
                 except Exception:
                     self.shortcut_problem = "Desktop shortcuts are unavailable. Check your X11 session and restart DictaDesk."
@@ -238,6 +243,11 @@ class Application(Adw.Application):
     def report_environment_problems(self):
         c = self.session
         problems = {
+            "accessibility": (
+                self.accessibility_problem,
+                "Automatic insertion unavailable",
+                "Text remains available through clipboard recovery. Check Preferences for details.",
+            ),
             "shortcuts": (
                 self.shortcut_problem or self.escape_problem,
                 "Shortcut unavailable",
@@ -1177,5 +1187,7 @@ class Application(Adw.Application):
 
 def main():
     os.umask(0o077)
+    accessibility_problem = prepare_accessibility()
     app = Application()
+    app.accessibility_problem = accessibility_problem
     raise SystemExit(app.run(sys.argv))

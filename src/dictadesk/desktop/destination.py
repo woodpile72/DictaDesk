@@ -33,12 +33,14 @@ def identity(obj):
 
 
 class DestinationTracker:
-    def __init__(self, connection):
+    def __init__(self, connection, *, accessibility=True):
         self.connection = connection
         self.focused = None
         self.targets = weakref.WeakSet()
         self.listener = None
         self.api = None
+        if not accessibility:
+            return
         try:
             import gi
 

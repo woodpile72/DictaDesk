@@ -267,3 +267,10 @@ the timed pause affects only wake listening and leaves dictation available.
 The synthetic English voice pronounced the default phrase as "Clanker" but
 Parakeet recognized "Langer"; exact matching correctly rejected it. Wake accuracy
 with the user's real microphone and voice remains a human acceptance check.
+
+Startup verifies the user session's accessibility-bus address before GTK starts.
+A stale X11 AT_SPI_BUS property cannot override that verified address. If the
+advertised socket is missing or cannot be connected to within the startup bound,
+GTK starts without its broken accessibility bridge, field tracking stays disabled,
+and Preferences/notifications explain clipboard recovery. This does not change
+system accessibility settings or restart other applications' services.

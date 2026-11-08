@@ -895,6 +895,8 @@ class PreferencesDialog:
                 "Settings need recovery",
                 c.store.problem + " Use Back Up Settings and Start Fresh below.",
             )
+        elif self.app.accessibility_problem:
+            title, detail = "Automatic insertion unavailable", self.app.accessibility_problem
         elif c.problem:
             _, category, detail = c.problem
             title = {

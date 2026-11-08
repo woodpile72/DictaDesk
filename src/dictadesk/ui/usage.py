@@ -90,6 +90,8 @@ class UsageWindow:
                 def finish():
                     if not self.closed:
                         self.probing = False
+                        if self.app.accessibility_problem:
+                            capabilities["paste"] = self.app.accessibility_problem
                         self.capabilities = capabilities
                         self.refresh()
 
