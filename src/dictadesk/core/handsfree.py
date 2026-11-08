@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from ..audio.handsfree import MemoryInput, acknowledge, utterance
+from ..audio.handsfree import AdaptiveGate, MemoryInput, acknowledge, utterance
 from .voice_commands import wake_activation, command, choice_number
 from .diagnostics import event, failure
 
@@ -26,12 +26,14 @@ class HandsFree:
         beep=acknowledge,
         speech_acknowledge=None,
         output_busy=lambda: False,
+        wake_detected=lambda inline: None,
     ):
         self.session = session
         self.changed, self.launch, self.feedback = changed, launch, feedback
         self.source, self.beep = source, beep
         self.speech_acknowledge, self.output_busy = speech_acknowledge, output_busy
         self.desktop_action = desktop_action
+        self.wake_detected = wake_detected
         self.capture_destination = capture_destination
         self.activation_target = None
         self.pause_until = 0
@@ -48,6 +50,9 @@ class HandsFree:
         self.recognitions = 0
         self.override_disabled = False
         self.choice = None
+        self.gate = None
+        self.activity = ""
+        self.last_check = ""
 
     @property
     def paused(self):
@@ -97,6 +102,7 @@ class HandsFree:
             self.stop.set()
             self.finished.set()
         self.state = "off"
+        self.activity = ""
         self.resume_at = time.monotonic() + 1
 
     def join(self):
@@ -126,6 +132,27 @@ class HandsFree:
 
         self.session.dispatch(update)
 
+    def observe_audio(self, generation, stage, level, floor, threshold):
+        if generation != self.generation or self.stop.is_set():
+            return
+        self.activity = stage
+
+    def publish_check(self, generation, matched, has_words, inline):
+        def update():
+            if self.valid(generation):
+                self.last_check = (
+                    "Wake phrase detected."
+                    if matched
+                    else "Speech recognized; wake phrase not found."
+                    if has_words
+                    else "No words recognized in the last speech."
+                )
+                self.changed()
+                if matched:
+                    self.wake_detected(inline)
+
+        self.session.dispatch(update)
+
     def offer_choices(self, generation, handler):
         if self.valid(generation):
             # A new identity also invalidates recognition from the previous page.
@@ -150,7 +177,13 @@ class HandsFree:
                 page, deadline = choice, time.monotonic() + 20
             with self.source(prefs) as source:
                 data = utterance(
-                    source, choice[2], threshold=prefs.silence_threshold, deadline=deadline
+                    source,
+                    choice[2],
+                    threshold=prefs.silence_threshold,
+                    deadline=deadline,
+                    gate=self.gate,
+                    observe=lambda *values: self.observe_audio(generation, *values),
+                    require_complete=True,
                 )
             if not self.valid(generation) or self.choice is not choice:
                 continue
@@ -196,6 +229,7 @@ class HandsFree:
             self.suspend()
             self.signature, self.failed = signature, False
             self.model_retry_at = 0
+            self.last_check = ""
             if not self.paused:
                 self.problem = ""
         if getattr(self.session, "desktop_blocked", False):
@@ -265,6 +299,7 @@ class HandsFree:
         return reply.get("text", "") if self.valid(generation) and not stop.is_set() else ""
 
     def run(self, generation, stop, prefs):
+        self.gate = gate = AdaptiveGate(prefs.silence_threshold)
         try:
             while self.valid(generation):
                 # Open a fresh stream only after own sounds have finished.
@@ -278,6 +313,8 @@ class HandsFree:
                         require_quiet=True,
                         max_seconds=6,
                         require_complete=True,
+                        gate=gate,
+                        observe=lambda *values: self.observe_audio(generation, *values),
                     )
                 # Close capture before inference. Disable/dictation never waits
                 # for a model result to release the microphone.
@@ -288,6 +325,8 @@ class HandsFree:
                 if not self.valid(generation):
                     return
                 match_kind, inline = wake_activation(text, prefs.wake_phrase)
+                if data:
+                    self.publish_check(generation, bool(match_kind), bool(text), bool(inline))
                 event(
                     "handsfree.wake_result",
                     generation=generation,
@@ -346,6 +385,8 @@ class HandsFree:
                             deadline=deadline,
                             require_quiet=True,
                             require_complete=True,
+                            gate=gate,
+                            observe=lambda *values: self.observe_audio(generation, *values),
                         )
                     text = self.recognize(data, generation, stop)
                 if not self.valid(generation):

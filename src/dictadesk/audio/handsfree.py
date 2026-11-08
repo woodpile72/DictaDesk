@@ -2,6 +2,7 @@
 """Bounded, disposable in-memory audio. This module never writes audio to disk."""
 
 from array import array
+from collections import deque
 import math
 import queue
 import threading
@@ -15,9 +16,53 @@ MAX_AUDIO_SECONDS = 8
 PRE_ROLL_SAMPLES = RATE // 5
 
 
-def speech_level(data):
+def speech_level(data, *, remove_dc=False):
     values = array("h", data)
-    return math.sqrt(sum(value * value for value in values) / max(1, len(values))) / 32768
+    count = max(1, len(values))
+    energy = sum(value * value for value in values) / count
+    if remove_dc:
+        energy -= (sum(values) / count) ** 2
+    return math.sqrt(max(0, energy)) / 32768
+
+
+class AdaptiveGate:
+    """Estimate ambient RMS; the configured threshold remains the minimum.
+
+    Learn only outside an utterance so speech cannot raise its own end boundary.
+    Hysteresis allows speech to end at the ambient floor without needing digital
+    silence. State contains levels only, never audio or recognized words.
+    """
+
+    def __init__(self, threshold):
+        self.minimum = threshold
+        self.reset()
+
+    def reset(self):
+        self.history = deque(maxlen=30)
+        self.floor = 0.0
+        self.start = self.end = self.minimum
+        self.ready = self.active = False
+
+    def observe(self, level, *, recording):
+        if not recording:
+            self.history.append(level)
+            if len(self.history) < 3:
+                return False
+            self.floor = sorted(self.history)[len(self.history) // 5]
+            self.start = max(self.minimum, self.floor * 1.6 + 0.003)
+            self.end = max(self.minimum * 0.8, self.floor * 1.25 + 0.002)
+            if not self.ready:
+                event(
+                    "handsfree.gate_ready",
+                    noise_floor=round(self.floor, 6),
+                    effective_threshold=round(self.start, 6),
+                    minimum=self.minimum,
+                    energy_mode="ac_rms",
+                )
+            self.ready = True
+        if self.ready:
+            self.active = level >= (self.end if self.active else self.start)
+        return self.active
 
 
 class MemoryInput:
@@ -113,6 +158,8 @@ def utterance(
     require_quiet=False,
     max_seconds=8,
     require_complete=False,
+    gate=None,
+    observe=None,
 ):
     """Consume one utterance, requiring fresh speech after any boundary reset."""
     audio = bytearray()
@@ -130,7 +177,27 @@ def utterance(
         block = source.read(stop, deadline)
         if block is None:
             break
-        speaking = speech_level(block) >= threshold
+        level = speech_level(block, remove_dc=gate is not None)
+        speaking = gate.observe(level, recording=bool(audio)) if gate else level >= threshold
+        if gate and not gate.ready:
+            if observe:
+                observe("calibrating", level, gate.floor, gate.start)
+            preceding.extend(block)
+            del preceding[: -PRE_ROLL_SAMPLES * 2]
+            continue
+        if observe:
+            observe(
+                "waiting_quiet"
+                if not armed
+                else "speech"
+                if speaking
+                else "finishing"
+                if audio
+                else "listening",
+                level,
+                gate.floor if gate else 0,
+                gate.start if gate else threshold,
+            )
         if not armed:
             preceding.extend(block)
             del preceding[: -PRE_ROLL_SAMPLES * 2]
@@ -169,7 +236,13 @@ def utterance(
         elapsed=round(time.monotonic() - started, 3),
         cancelled=stop.is_set(),
         complete=complete,
+        noise_floor=round(gate.floor, 6) if gate else 0,
+        effective_threshold=round(gate.start, 6) if gate else threshold,
     )
+    if gate and audio and not complete:
+        # A fan/AGC change or continuous loud audio must not freeze the baseline
+        # forever. Discard this incomplete clip and recalibrate on the next one.
+        gate.reset()
     return result
 
 

@@ -58,6 +58,17 @@ def preferences():
     app.handsfree.state = "wake"
     p.refresh_backend()
     assert "Listening for “Computer”" in p.voice_status.get_subtitle()
+    app.handsfree.activity = "waiting_quiet"
+    app.handsfree.last_check = "Wake phrase detected."
+    p.refresh_backend()
+    assert "Waiting for a brief pause" in p.voice_status.get_subtitle()
+    assert "Last check: Wake phrase detected." in p.voice_status.get_subtitle()
+    with patch.object(app, "send_notification") as sent:
+        app.notifications_enabled = True
+        app.wake_feedback(False)
+        assert sent.call_count == 1 and sent.call_args.args[0] == "wake-detected"
+        app.notifications_enabled = False
+    app.handsfree.activity = ""
     p.wake_phrase.set_text("Hello Desk")
     assert "Save to change" in p.voice_status.get_subtitle()
     assert "from “Computer” to “Hello Desk”" in p.voice_status.get_subtitle()

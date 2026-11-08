@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 from array import array
 import base64
+import math
 from dataclasses import replace
 from pathlib import Path
 import tempfile
@@ -23,7 +24,13 @@ from dictadesk.core.voice_commands import (
 from dictadesk.core.settings import Preferences, SettingsStore
 from dictadesk.core.handsfree import HandsFree
 from dictadesk.core.session import Session
-from dictadesk.audio.handsfree import MemoryInput, utterance, PRE_ROLL_SAMPLES
+from dictadesk.audio.handsfree import (
+    AdaptiveGate,
+    MemoryInput,
+    utterance,
+    speech_level,
+    PRE_ROLL_SAMPLES,
+)
 from dictadesk.audio.worker import transcribe_pcm
 
 VOICE = array("h", [4000] * 1600).tobytes()
@@ -198,6 +205,109 @@ class ParsingTests(unittest.TestCase):
 
 
 class AudioTests(unittest.TestCase):
+    def test_dc_offset_is_not_speech_for_adaptive_gating(self):
+        bias = array("h", [3000] * 1600).tobytes()
+        self.assertGreater(speech_level(bias), 0.015)
+        self.assertEqual(speech_level(bias, remove_dc=True), 0)
+        stream = iter([bias] * 100)
+        source = SimpleNamespace(read=lambda *_: next(stream, None))
+        self.assertEqual(
+            utterance(
+                source,
+                threading.Event(),
+                threshold=0.015,
+                deadline=float("inf"),
+                require_quiet=True,
+                require_complete=True,
+                gate=AdaptiveGate(0.015),
+            ),
+            b"",
+        )
+
+    def test_adaptive_gate_recovers_the_all_blocks_voiced_laptop_stall(self):
+        def tone(amplitude):
+            return array(
+                "h",
+                (int(amplitude * math.sin(2 * math.pi * 200 * i / 16000)) for i in range(1600)),
+            ).tobytes()
+
+        ambient, speech = tone(2800), tone(14000)
+        blocks = [ambient] * 20 + [speech] * 5 + [ambient] * 10
+        for gate, expected in ((None, False), (AdaptiveGate(0.015), True)):
+            stream = iter(blocks)
+            source = SimpleNamespace(read=lambda *_: next(stream, None))
+            stages = []
+            data = utterance(
+                source,
+                threading.Event(),
+                threshold=0.015,
+                deadline=float("inf"),
+                require_quiet=True,
+                require_complete=True,
+                gate=gate,
+                observe=lambda stage, *_: stages.append(stage),
+            )
+            self.assertEqual(bool(data), expected)
+            if gate:
+                self.assertGreater(gate.floor, 0.05)
+                self.assertIn("speech", stages)
+                self.assertIn(speech, data)
+
+    def test_adaptive_gate_does_not_submit_constant_background_noise_or_clicks(self):
+        ambient = array("h", [2200, -2200] * 800).tobytes()
+        for blocks in ([ambient] * 200, [ambient] * 10 + [VOICE] + [ambient] * 10):
+            stream = iter(blocks)
+            source = SimpleNamespace(read=lambda *_: next(stream, None))
+            self.assertEqual(
+                utterance(
+                    source,
+                    threading.Event(),
+                    threshold=0.015,
+                    deadline=float("inf"),
+                    require_quiet=True,
+                    require_complete=True,
+                    gate=AdaptiveGate(0.015),
+                ),
+                b"",
+            )
+
+    def test_incomplete_loud_capture_resets_noise_calibration_and_cannot_execute(self):
+        low = array("h", [1000, -1000] * 800).tobytes()
+        high = array("h", [4000, -4000] * 800).tobytes()
+        gate = AdaptiveGate(0.015)
+        stream = iter([low] * 10 + [high] * 50)
+        source = SimpleNamespace(read=lambda *_: next(stream, None))
+        self.assertEqual(
+            utterance(
+                source,
+                threading.Event(),
+                threshold=0.015,
+                deadline=float("inf"),
+                require_quiet=True,
+                require_complete=True,
+                gate=gate,
+                max_seconds=1,
+            ),
+            b"",
+        )
+        self.assertFalse(gate.ready)
+        # The new steady background becomes ambient instead of holding the next
+        # session hostage; pure ambient still never submits audio to recognition.
+        self.assertEqual(
+            utterance(
+                source,
+                threading.Event(),
+                threshold=0.015,
+                deadline=float("inf"),
+                require_quiet=True,
+                require_complete=True,
+                gate=gate,
+                max_seconds=1,
+            ),
+            b"",
+        )
+        self.assertTrue(gate.ready)
+
     def test_bounded_utterance_and_silence_gating(self):
         def run(blocks, **kwargs):
             sequence = iter(blocks)
@@ -435,6 +545,18 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(actions, [("window", ("maximize",))])
         self.hf.capture_destination.assert_called_once()
         self.assertFalse(self.hf.valid(0))
+
+    def test_wake_confirmation_precedes_destination_tracking_and_acknowledgment(self):
+        self.prepare(["Computer", "open Firefox"])
+        sequence = []
+        self.hf.wake_detected = lambda inline: sequence.append(("detected", inline))
+        self.hf.capture_destination = lambda: sequence.append(("destination", None))
+        self.hf.beep = lambda stop: sequence.append(("beep", None))
+        self.launch.side_effect = lambda *_args, **_kwargs: self.hf.complete(0)
+        with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
+            self.hf.run(0, self.hf.stop, self.session.preferences)
+        self.assertEqual(sequence, [("detected", False), ("destination", None), ("beep", None)])
+        self.assertEqual(self.hf.last_check, "Wake phrase detected.")
 
     def test_timed_pause_releases_capture_preserves_dictation_and_resumes(self):
         with patch("dictadesk.core.handsfree.time.monotonic", return_value=100):

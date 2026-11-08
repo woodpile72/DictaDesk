@@ -695,6 +695,17 @@ class PreferencesDialog:
                 "loading": "Loading the local speech model…",
                 "paused": "Voice commands are paused. Resume them from the tray.",
             }.get(listener.state, f"Starting local listening for “{phrase}”…")
+            if listener.state == "wake":
+                activity = {
+                    "calibrating": "Adjusting to background microphone noise…",
+                    "waiting_quiet": "Waiting for a brief pause before listening.",
+                    "speech": "Speech detected; waiting for you to finish.",
+                    "finishing": "Finishing the speech capture…",
+                    "listening": "Microphone active; waiting for speech.",
+                }.get(listener.activity, "")
+                status += " " + activity if activity else ""
+            if listener.last_check:
+                status += " Last check: " + listener.last_check
         draft = self.wake_phrase.get_text().strip()
         if draft != phrase:
             status += f" Save to change the active wake phrase from “{phrase}” to “{draft}”."

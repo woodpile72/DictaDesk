@@ -7,6 +7,7 @@ No microphone, audio playback, network request or application launch is used.
 import argparse
 from array import array
 import json
+import math
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -23,13 +24,48 @@ worker = Recognizer()
 trials = []
 
 
-def run(wake, speech, offset_ms, *, threshold=0.015, gain=1, expected=True, inline=False):
+def run(
+    wake,
+    speech,
+    offset_ms,
+    *,
+    threshold=0.015,
+    gain=1,
+    expected=True,
+    inline=False,
+    noise=0,
+    dc=0,
+):
     clips = []
     for text in (speech, "Open Firefox.") if expected and not inline else (speech,):
         pcm = synthesize(text)
         if gain != 1:
             pcm = array("h", (int(value * gain) for value in array("h", pcm))).tobytes()
-        clips.append(bytes(16000 + offset_ms * 32) + pcm + bytes(16000))
+        data = bytes(16000 + offset_ms * 32) + pcm + bytes(16000)
+        if noise or dc:
+            data = array(
+                "h",
+                (
+                    max(
+                        -32768,
+                        min(
+                            32767,
+                            int(
+                                value
+                                + 32768
+                                * (
+                                    dc
+                                    + noise
+                                    * math.sqrt(2)
+                                    * math.sin(2 * math.pi * 137 * i / 16000)
+                                )
+                            ),
+                        ),
+                    )
+                    for i, value in enumerate(array("h", data))
+                ),
+            ).tobytes()
+        clips.append(data)
     opened, beeps, active = [], [], []
     prefs = Preferences(hands_free=True, wake_phrase=wake, silence_threshold=threshold)
     session = SimpleNamespace(
@@ -88,6 +124,8 @@ def run(wake, speech, offset_ms, *, threshold=0.015, gain=1, expected=True, inli
             "offset_ms": offset_ms,
             "gain": gain,
             "threshold": threshold,
+            "noise_rms": noise,
+            "dc_offset": dc,
             "expected": expected,
             "inline": inline,
             "matched": matched,
@@ -121,6 +159,10 @@ try:
     run(default, default + ".", 50, gain=0.1, threshold=0.003)
     run(default, default + " open Firefox.", 50, inline=True)
     run("Hello computer", "Hello computer open Firefox.", 150, inline=True)
+    for noise, dc in ((0.04, 0), (0.06, 0), (0, 0.08)):
+        run(default, default + ".", 50, noise=noise, dc=dc)
+    run(default, default + " open Firefox.", 50, noise=0.06, inline=True)
+    run(default, "Thank you.", 50, noise=0.06, expected=False)
     for text in ("Thank you.", "Open Firefox.", "What is the weather today?"):
         run(default, text, 50, expected=False)
     print(json.dumps({"generated_audio_only": True, "trials": trials}, indent=2))

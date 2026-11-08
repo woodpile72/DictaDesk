@@ -133,6 +133,7 @@ class Application(Adw.Application):
             capture_destination=self.capture_command_destination,
             speech_acknowledge=self.speech.acknowledge,
             output_busy=lambda: self.speech.previewing,
+            wake_detected=self.wake_feedback,
         )
         self.session.handsfree = self.handsfree
         self.session.stream_delivered = self.deliver_segment
@@ -512,6 +513,8 @@ class Application(Adw.Application):
         voice_view = (
             self.handsfree.state,
             self.handsfree.problem,
+            self.handsfree.activity,
+            self.handsfree.last_check,
         )
         if voice_view != self.voice_view:
             self.voice_view = voice_view
@@ -585,6 +588,10 @@ class Application(Adw.Application):
             state = self.handsfree.state
             if state == "wake":
                 shape, title = "wake", f"Listening locally for “{c.preferences.wake_phrase}”"
+                if self.handsfree.activity == "calibrating":
+                    title = "Adjusting to background microphone noise"
+                elif self.handsfree.activity == "waiting_quiet":
+                    title = "Waiting for a brief pause before wake listening"
             elif state == "command":
                 shape = "listening"
                 title = (
@@ -648,6 +655,18 @@ class Application(Adw.Application):
             note.set_body(f"{message}\n{details}" if details else message)
             note.set_priority(Gio.NotificationPriority.LOW)
             self.send_notification("voice-commands", note)
+
+    def wake_feedback(self, inline):
+        if not self.notifications_enabled or self.shutting_down:
+            return
+        note = Gio.Notification.new("Wake phrase heard")
+        note.set_body(
+            "Wake phrase heard. Checking your command."
+            if inline
+            else "Wake phrase heard. Speak your command after the acknowledgment."
+        )
+        note.set_priority(Gio.NotificationPriority.NORMAL)
+        self.send_notification("wake-detected", note)
 
     def capture_command_destination(self):
         return self.destinations.capture() if self.destinations else Target(None)
