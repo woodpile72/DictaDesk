@@ -16,6 +16,7 @@ Adw.init()
 Gtk.Settings.get_default().set_property("gtk-enable-animations", False)
 Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
 app = Application(isolated=True)
+app.model_prompts_shown.add(("parakeet", "int8"))
 failures = []
 out = Path(__file__).resolve().parents[1] / ".qa"
 if os.environ.get("ADW_DEBUG_HIGH_CONTRAST") == "1":

@@ -52,6 +52,7 @@ class Application(Adw.Application):
         self.usage_window = None
         self.alert_windows = set()
         self.preferences_dialog = self.microphone_dialog = None
+        self.model_prompts_shown = set()
         self.accessibility_problem = ""
         self.shortcut_problem = ""
         self.escape_problem = ""
@@ -391,6 +392,8 @@ class Application(Adw.Application):
             self.deliver(c.pending_text or c.result.text, target)
 
     def escape_pressed(self):
+        if self.usage_window and self.usage_window.dialog.is_active():
+            self.usage_window.dialog.close()
         if self.handsfree and self.handsfree.state == "command" and not self.session.busy:
             self.handsfree.cancel()
             return

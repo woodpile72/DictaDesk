@@ -15,6 +15,7 @@ from notification_host import NotificationHost
 Adw.init()
 Gtk.Settings.get_default().set_property("gtk-enable-animations", False)
 app = Application(isolated=True)
+app.model_prompts_shown.add(("parakeet", "int8"))
 app.notifications_enabled = True
 host = NotificationHost()
 errors = []

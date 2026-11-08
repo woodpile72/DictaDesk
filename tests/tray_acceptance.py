@@ -16,6 +16,7 @@ XML = """<node><interface name="org.kde.StatusNotifierWatcher">
 <signal name="StatusNotifierHostRegistered"/><signal name="StatusNotifierHostUnregistered"/>
 </interface></node>"""
 app = Application(isolated=True)
+app.model_prompts_shown.add(("parakeet", "int8"))
 errors, registrations = [], []
 connection = None
 owner = None

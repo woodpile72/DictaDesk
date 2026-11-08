@@ -44,7 +44,7 @@ class UsageWindow:
         self.dialog.set_size_request(320, 300)
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        close = Gtk.Button(label="Close")
+        close = self.close_button = Gtk.Button(label="Close")
         close.connect("clicked", lambda *_: self.dialog.close())
         header.pack_end(close)
         toolbar.add_top_bar(header)
@@ -64,8 +64,18 @@ class UsageWindow:
             )
         )
         self.dialog.connect("close-request", self.close_requested)
+        keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self.key_pressed)
+        self.dialog.add_controller(keys)
         self.tables = {}
         self.row_ids = []
+
+    def key_pressed(self, controller, keyval, keycode, state):
+        if keyval == Gdk.KEY_Escape:
+            self.dialog.close()
+            return True
+        return False
 
     def close_requested(self, *_):
         self.closed = True

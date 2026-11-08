@@ -15,6 +15,7 @@ from Xlib.ext import xtest
 Adw.init()
 Gtk.Settings.get_default().set_property("gtk-enable-animations", False)
 app = Application(isolated=True)
+app.model_prompts_shown.add(("parakeet", "int8"))
 failures = []
 
 

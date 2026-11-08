@@ -28,7 +28,6 @@ class PreferencesDialog:
         self.dialog = Adw.Window(
             title="Preferences",
             application=app,
-            modal=True,
             resizable=True,
         )
         width, height = 760, 820
@@ -66,7 +65,18 @@ class PreferencesDialog:
         self.storage_info = None
         self.controls = {}
         self.validation_problem = ""
+        self.model_prompt = None
         self.shortcut_rows = {}
+        self.setup_group = Adw.PreferencesGroup(
+            title="Start Here — Download a Speech Model", visible=False
+        )
+        self.setup_row = Adw.ActionRow(use_markup=False)
+        self.setup_download = Gtk.Button(label="Download Model", valign=Gtk.Align.CENTER)
+        self.setup_download.add_css_class("suggested-action")
+        self.setup_download.connect("clicked", self.download_model)
+        self.setup_row.add_suffix(self.setup_download)
+        self.setup_group.add(self.setup_row)
+        page.add(self.setup_group)
         usage = Adw.PreferencesGroup(title="Using DictaDesk")
         self.usage = text()
         self.usage.set_margin_top(4)
@@ -132,7 +142,7 @@ class PreferencesDialog:
         self.populate_devices()
         test = Adw.ActionRow(
             title="Test Microphone",
-            subtitle="Uses your saved microphone and transcription settings.",
+            subtitle="Try the microphone and transcription options selected here, before saving.",
             activatable=True,
         )
         test.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
@@ -281,10 +291,6 @@ class PreferencesDialog:
             description="Keeps the microphone listening locally. Say the configured wake phrase, wait for the acknowledgment, then speak a supported command. Usage &amp; Commands lists the available controls. Dictation takes priority.",
         )
         page.add(self.voice_group)
-        self.spin(self.voice_group, "volume_step", "Default Volume Adjustment (%)", 1, 100)
-        self.spin(
-            self.voice_group, "brightness_step", "Default Brightness Adjustment (%)", 1, 100
-        )
         hands_free = Adw.SwitchRow(
             title="Enable hands-free commands", active=self.values["hands_free"]
         )
@@ -299,6 +305,10 @@ class PreferencesDialog:
         self.controls["command_sound"] = sound
         self.voice_status = Adw.ActionRow(title="Local listening", use_markup=False)
         self.voice_group.add(self.voice_status)
+        self.spin(self.voice_group, "volume_step", "Default Volume Adjustment (%)", 1, 100)
+        self.spin(
+            self.voice_group, "brightness_step", "Default Brightness Adjustment (%)", 1, 100
+        )
         self.remote_group = remote = Adw.PreferencesGroup(
             title="Remote Transcription",
             description="Requires an API account and key. Audio leaves this computer and is sent to the provider. API charges may apply.",
@@ -567,6 +577,12 @@ class PreferencesDialog:
             if cached
             else "Download the selected local model before enabling hands-free commands."
         )
+        self.setup_group.set_visible(local and not cached)
+        self.setup_row.set_title(f"{LOCAL_MODELS[model]['name']} isn’t downloaded")
+        self.setup_row.set_subtitle(
+            f"Download approximately {LOCAL_MODELS[model]['sizes'][precision]}. This is a one-time download; your audio stays on this computer."
+        )
+        self.setup_download.set_sensitive(not c.busy)
         self.download_button.set_sensitive(local and not c.busy and not cached)
         self.download_row.set_subtitle(
             "Installed · Download approximately " + LOCAL_MODELS[model]["sizes"][precision]
@@ -596,7 +612,7 @@ class PreferencesDialog:
                 else "Not loaded."
             )
             if matches
-            else "Save these choices before loading the model."
+            else "Save these choices to use this model for dictation."
         )
         self.repair.set_sensitive(local and not c.busy and cached)
         self.connection_button.set_sensitive(not self.connection_busy and not c.busy)
@@ -912,13 +928,6 @@ class PreferencesDialog:
                 "Remote transcription needs setup",
                 "Add your API key under Remote Transcription, test the connection, then Save.",
             )
-        elif c.model_needed and not downloaded(
-            c.preferences.quantization, c.preferences.local_model
-        ):
-            title, detail = (
-                "Download a speech model",
-                "Choose a model under Local Transcription, then Download.",
-            )
         else:
             title, detail = "", ""
         self.attention.set_title(title)
@@ -944,6 +953,54 @@ class PreferencesDialog:
             self.app.keyboard.clear()
         self.refresh()
         self.dialog.present()
+        self.app.dispatch(self.offer_model_download)
+
+    def offer_model_download(self):
+        if (
+            self.closed_flag
+            or self.app.shutting_down
+            or self.model_prompt
+            or self.app.session.busy
+            or self.app.session.store.problem
+        ):
+            return
+        if self.controls["backend"][0].get_selected() != 0 or self.dialog.get_visible_dialog():
+            return
+        model, precision = self.selected_model(), self.selected_precision()
+        if downloaded(precision, model) or (model, precision) in self.app.model_prompts_shown:
+            return
+        self.app.model_prompts_shown.add((model, precision))
+        spec = LOCAL_MODELS[model]
+        dialog = Adw.AlertDialog(
+            heading="Download a Speech Model?",
+            body=f"DictaDesk needs a speech model before it can transcribe your voice locally. Download {spec['name']} (approximately {spec['sizes'][precision]}) now?\n\nDownload once; your audio stays on this computer. You can choose a different model in Preferences.",
+        )
+        dialog.add_response("later", "Not Now")
+        dialog.add_response("download", "Download Model")
+        dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("download")
+        dialog.set_close_response("later")
+        self.model_prompt = dialog
+
+        def response(_, choice):
+            self.model_prompt = None
+            if choice == "download" and not self.closed_flag:
+                self.app.session.download_model(precision, model=model)
+
+        dialog.connect("response", response)
+        dialog.present(self.dialog)
+
+    def sample_settings(self):
+        data = dict(self.values)
+        for key in ("backend", "local_model", "quantization", "device"):
+            row, choices = self.controls[key]
+            data[key] = choices[row.get_selected()]
+        data["microphone"], data["host_api"] = self.device_values[self.input.get_selected()]
+        data["language"] = self.language.get_text().strip()
+        data["spoken_punctuation"] = self.controls["spoken_punctuation"].get_active()
+        data["vocabulary"] = self.rules
+        key = os.environ.get("OPENAI_API_KEY") or self.api_key.get_text().strip()
+        return Preferences(**data).validate(), key
 
     def update_usage(self):
         from html import escape

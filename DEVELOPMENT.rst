@@ -279,3 +279,25 @@ Immediate shutdown also waits for any native microphone device/settings check to
 leave PortAudio before interpreter teardown. Credential lookup can still finish
 independently. The stale-bus entrypoint check exercises an immediate tray shutdown,
 and passes repeatedly against the installed runtime after this synchronization.
+
+Pre-release preference and help fixes
+-------------------------------------
+
+Command & Control puts its enable switch, wake phrase, acknowledgment and status
+before the adjustment increments. Preferences is a nonmodal standalone window;
+Usage & Commands accepts Close, title-bar close and Escape while Preferences is
+open. Native XTest input exercises all three routes in
+``tests/ux_fixes_acceptance.py``.
+
+When the selected local model is absent, Preferences places setup first and offers
+an explicit download prompt. Nothing downloads before a user chooses Download.
+Not Now suppresses repeat prompts for that model during this run; the prominent
+setup action remains. Background startup still never creates a window.
+
+Microphone samples use the selected draft input/backend/model, without saving
+Preferences or replacing dictation/recovery text. An installed model loads when a
+sample starts. Testing another model uses the existing recognizer in a temporary
+worker and then releases it, retaining the active dictation model. A failed saved
+input or an unloaded model no longer permanently disables sample recording.
+``tests/test_samples.py`` covers these transitions and unsaved remote credentials
+with fixtures; no microphone or paid API is used by automated checks.

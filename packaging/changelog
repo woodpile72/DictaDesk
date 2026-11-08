@@ -4,6 +4,8 @@ dictadesk (1.2.0) unstable; urgency=medium
   * Bind dictation to the original window and editable field across focus changes.
   * Restore selections where supported and retain text when insertion is unsafe.
   * Add a compact tray reference and preserve configurable dictation shortcuts.
+  * Keep settings and reference windows independent and support Escape dismissal.
+  * Clarify model setup and allow microphone tests with selected unsaved options.
 
  -- Erick Woods <woodpile72@users.noreply.github.com>  Sun, 08 Nov 2026 03:55:04 +0000
 

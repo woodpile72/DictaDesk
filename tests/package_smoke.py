@@ -92,6 +92,18 @@ try:
     xtest.fake_input(connection, X.KeyRelease, escape)
     connection.sync()
     time.sleep(0.3)
+    # A fresh profile first dismisses the explicit model-download prompt.
+    # A second Escape then closes Preferences itself.
+    remaining = [
+        w
+        for w in connection.screen().root.query_tree().children
+        if w.get_wm_name() == "Preferences" and w.get_attributes().map_state == X.IsViewable
+    ]
+    if remaining:
+        xtest.fake_input(connection, X.KeyPress, escape)
+        xtest.fake_input(connection, X.KeyRelease, escape)
+        connection.sync()
+        time.sleep(0.3)
     assert not any(
         w.get_wm_class()
         and any("dictadesk" in c.lower() for c in w.get_wm_class())

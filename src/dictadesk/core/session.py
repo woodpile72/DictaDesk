@@ -66,6 +66,11 @@ class Session:
         return self.preferences.backend == "local" and not self.recognizer.loaded
 
     @property
+    def can_sample(self):
+        # Selected sample settings are checked and prepared in the worker.
+        return not (self.busy or self.desktop_locked or self.closing or self.store.problem)
+
+    @property
     def can_record(self):
         return not (
             self.busy
@@ -364,7 +369,7 @@ class Session:
                 lambda _: setattr(
                     self,
                     "notice",
-                    "Model downloaded. Save your local settings, then Load when ready.",
+                    "Model downloaded. Start dictation or test the microphone to load it automatically. Save any changed model choices before dictating.",
                 ),
             )
 
@@ -398,7 +403,7 @@ class Session:
                 lambda _: setattr(self, "notice", "Local model unloaded."),
             )
 
-    def record(self, target=None, sample=False):
+    def record(self, target=None, sample=False, *, preferences=None, api_key=None):
         if self.phase == "listening":
             self.finish_recording()
             return
@@ -406,7 +411,7 @@ class Session:
             self.notice = "Copy or paste the uninserted text before starting a new recording."
             self.changed()
             return
-        if not self.can_record:
+        if not (self.can_sample if sample else self.can_record):
             self.notice = (
                 self.store.problem
                 or self.microphone_problem
@@ -423,7 +428,17 @@ class Session:
             return
         if not sample:
             self._dictation_operation = self.operation
-        prefs = self.preferences
+        prefs = replace(preferences or self.preferences) if sample else self.preferences
+
+        def variant(value):
+            return value.local_model, value.quantization, value.device
+
+        temporary_worker = (
+            sample and prefs.backend == "local" and variant(prefs) != variant(self.preferences)
+        )
+        worker = Recognizer() if temporary_worker else self.recognizer
+        if sample:
+            self.sample_text, self.sample_peak = "", 0.0
         self.capture = capture = Capture(
             prefs, directory("CACHE") / "recordings", seconds=8 if sample else None
         )
@@ -463,6 +478,39 @@ class Session:
                     self.changed()
 
             try:
+                selected_key = None
+                if sample:
+                    prefs.validate()
+                    for native_finished in tuple(self.device_checks):
+                        while not native_finished.wait(0.05):
+                            if cancel.is_set():
+                                raise InterruptedError()
+                    check(prefs)
+                    if prefs.backend == "local" and not worker.loaded:
+                        if not downloaded(prefs.quantization, prefs.local_model):
+                            raise ValueError(
+                                "Download the selected speech model before testing the microphone."
+                            )
+                        self.dispatch(lambda: phase("loading"))
+                        worker.request(
+                            {
+                                "op": "load",
+                                "local_only": True,
+                                "cache": str(model_directory(create=True)),
+                                "precision": prefs.quantization,
+                                "local_model": prefs.local_model,
+                                "device": prefs.device,
+                            },
+                            cancel,
+                            timeout=900,
+                        )
+                        self.dispatch(lambda: phase("starting"))
+                    elif prefs.backend == "openai":
+                        selected_key = api_key or read_key()
+                        if not selected_key:
+                            raise ValueError(
+                                "Add an API key in Preferences before recording a remote sample."
+                            )
                 try:
                     path = capture.run(lambda: self.dispatch(lambda: phase("listening")))
                 finally:
@@ -475,7 +523,7 @@ class Session:
                 if prefs.backend == "local":
                     payload = {"op": "transcribe", "path": str(path)}
                 else:
-                    key = read_key()
+                    key = selected_key if sample else read_key()
                     if not key:
                         raise ValueError("Add an OpenAI API key in Preferences.")
                     payload = {
@@ -485,7 +533,7 @@ class Session:
                         "model": prefs.cloud_model,
                         "language": prefs.language,
                     }
-                answer = self.recognizer.request(payload, cancel)
+                answer = worker.request(payload, cancel)
                 text = answer.get("text", "").strip()
                 if not text:
                     raise ValueError(
@@ -498,6 +546,8 @@ class Session:
                     preview_thread.join()
                 if path:
                     path.unlink(missing_ok=True)
+                if temporary_worker:
+                    worker.close()
 
         def complete(value):
             text, peak = value

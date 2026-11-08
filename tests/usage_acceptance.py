@@ -11,6 +11,7 @@ from dictadesk.ui.application import Application
 from dictadesk.ui.gtk import Gtk, GLib
 
 app = Application(isolated=True)
+app.model_prompts_shown.add(("parakeet", "int8"))
 failures = []
 
 
