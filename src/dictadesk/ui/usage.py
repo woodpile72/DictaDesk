@@ -154,7 +154,7 @@ class UsageWindow:
         self.wake = self.section(
             "Command & Control — Wake Word",
             f"Enable Command & Control in Preferences.\n1. Say “{p.wake_phrase}”.\n2. Wait for the acknowledgment beep.\n3. Speak a command, such as “Volume down fifteen percent”.\n4. DictaDesk executes it and resumes wake-word listening.\n\n"
-            "Listening is continuous only while enabled, using the local model. Pause between the wake word and command. Escape cancels an active command. Dictation takes priority. Use Pause Voice Commands for 30 Minutes in the tray to pause listening, or Resume Voice Commands Now to resume sooner. "
+            "Listening is continuous only while enabled, using the local model. Say the wake phrase on its own; small recognition errors in an isolated wake phrase can be tolerated. Pause between the wake word and command. Escape cancels an active command. Dictation takes priority. Use Pause Voice Commands for 30 Minutes in the tray to pause listening, or Resume Voice Commands Now to resume sooner. "
             + (
                 "The acknowledgment sound is currently disabled in Preferences."
                 if not p.command_sound

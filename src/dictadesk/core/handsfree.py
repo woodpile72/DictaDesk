@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timedelta
 
 from ..audio.handsfree import MemoryInput, acknowledge, utterance
-from .voice_commands import wake_matches, command, choice_number
+from .voice_commands import wake_match_kind, command, choice_number
 from .diagnostics import event, failure
 
 
@@ -282,14 +282,15 @@ class HandsFree:
                 text = self.recognize(data, generation, stop)
                 if not self.valid(generation):
                     return
-                matched = wake_matches(text, prefs.wake_phrase)
+                match_kind = wake_match_kind(text, prefs.wake_phrase)
                 event(
                     "handsfree.wake_result",
                     generation=generation,
                     characters=len(text),
-                    matched=matched,
+                    matched=bool(match_kind),
+                    match_kind=match_kind,
                 )
-                if not matched:
+                if not match_kind:
                     continue
                 if self.capture_destination:
                     captured = threading.Event()

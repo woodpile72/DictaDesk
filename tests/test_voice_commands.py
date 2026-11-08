@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 from dictadesk.core.voice_commands import (
     words,
     wake_matches,
+    wake_match_kind,
     command,
     match_applications,
     diagnostic,
@@ -21,7 +22,7 @@ from dictadesk.core.voice_commands import (
 from dictadesk.core.settings import Preferences, SettingsStore
 from dictadesk.core.handsfree import HandsFree
 from dictadesk.core.session import Session
-from dictadesk.audio.handsfree import MemoryInput, utterance
+from dictadesk.audio.handsfree import MemoryInput, utterance, PRE_ROLL_SAMPLES
 from dictadesk.audio.worker import transcribe_pcm
 
 VOICE = array("h", [4000] * 1600).tobytes()
@@ -53,6 +54,34 @@ class ParsingTests(unittest.TestCase):
             self.assertFalse(wake_matches(text, "Hey Mint"), text)
         self.assertEqual(words("HÉY—Ｍｉｎｔ"), ("héy", "mint"))
         self.assertFalse(wake_matches("hello", "..."))
+
+    def test_isolated_wake_tolerance_is_bounded_and_configured(self):
+        self.assertEqual(wake_match_kind("Clanker!", "Clanker"), "exact")
+        for heard in ("Clank.", "Clanger."):
+            self.assertEqual(wake_match_kind(heard, "Clanker"), "limited")
+        self.assertTrue(wake_matches("Hey clank", "Hey Clanker"))
+        self.assertTrue(wake_matches("Thund", "Thunder"))
+        self.assertFalse(wake_matches("Clank", "Thunder"))
+        for heard in (
+            "Langer",
+            "Planker",
+            "Clender",
+            "Clunker",
+            "Clan",
+            "Clanky",
+            "clank er",
+            "a clank",
+            "there was a clanger",
+            "please clank",
+            "clank open Firefox",
+        ):
+            self.assertFalse(wake_matches(heard, "Clanker"), heard)
+        self.assertFalse(wake_matches("they clank", "Hey Clanker"))
+        self.assertFalse(wake_matches("Thund comput", "Thunder Computer"))
+        self.assertFalse(wake_matches("123756", "123456"))
+        # Wake tolerance must never change the deterministic command grammar.
+        for text in ("Clank", "volum up", "locks screan", "suspent computer"):
+            self.assertEqual(command(text)[0], "unknown")
 
     def test_defaults_validation_and_roundtrip(self):
         p = Preferences()
@@ -146,8 +175,42 @@ class AudioTests(unittest.TestCase):
         self.assertEqual(len(data), 8 * 16000 * 2)
         self.assertEqual(
             run([VOICE] * 5 + [QUIET] * 3 + [VOICE] * 2 + [QUIET] * 5, require_quiet=True),
-            VOICE * 2 + QUIET * 5,
+            QUIET * 2 + VOICE * 2 + QUIET * 5,
         )
+
+    def test_preroll_preserves_weak_onset_and_does_not_relax_speech_gating(self):
+        weak = array("h", [300] * 1600).tobytes()
+        sequence = iter([QUIET] * 3 + [weak] * 2 + [VOICE] * 2 + [QUIET] * 5)
+        source = SimpleNamespace(read=lambda *_: next(sequence, None))
+        data = utterance(
+            source,
+            threading.Event(),
+            threshold=0.015,
+            deadline=float("inf"),
+            require_quiet=True,
+            max_seconds=6,
+        )
+        self.assertEqual(data, weak * 2 + VOICE * 2 + QUIET * 5)
+        # Quiet audio and a single isolated click still cannot trigger inference.
+        for blocks in ([weak] * 20, [QUIET] * 3 + [VOICE] + [QUIET] * 5):
+            sequence = iter(blocks)
+            self.assertEqual(
+                utterance(
+                    source,
+                    threading.Event(),
+                    threshold=0.015,
+                    deadline=float("inf"),
+                    require_quiet=True,
+                ),
+                b"",
+            )
+
+    def test_preroll_is_fresh_for_every_capture_and_excluded_from_voiced_count(self):
+        for block in (VOICE, array("h", [7000] * 1600).tobytes()):
+            sequence = iter([block] * 2 + [QUIET] * 5)
+            source = SimpleNamespace(read=lambda *_: next(sequence, None))
+            data = utterance(source, threading.Event(), threshold=0.015, deadline=float("inf"))
+            self.assertEqual(data, bytes(PRE_ROLL_SAMPLES * 2) + block * 2 + QUIET * 5)
 
     def test_memory_protocol_never_uses_cloud_or_files(self):
         model = Mock()

@@ -297,6 +297,7 @@ class PreferencesDialog:
         self.voice_group.add(hands_free)
         self.controls["hands_free"] = hands_free
         self.wake_phrase = Adw.EntryRow(title="Wake phrase", text=self.values["wake_phrase"])
+        self.wake_phrase.connect("notify::text", lambda *_: self.refresh_backend())
         self.voice_group.add(self.wake_phrase)
         sound = Adw.SwitchRow(
             title="Play acknowledgment sound", active=self.values["command_sound"]
@@ -572,11 +573,7 @@ class PreferencesDialog:
         self.controls["hands_free"].set_sensitive(
             local and (cached or self.controls["hands_free"].get_active())
         )
-        self.voice_status.set_subtitle(
-            "The selected local model is installed. No command audio is sent online."
-            if cached
-            else "Download the selected local model before enabling hands-free commands."
-        )
+        self.refresh_voice_status(cached)
         self.setup_group.set_visible(local and not cached)
         self.setup_row.set_title(f"{LOCAL_MODELS[model]['name']} isn’t downloaded")
         self.setup_row.set_subtitle(
@@ -620,6 +617,30 @@ class PreferencesDialog:
             self.storage_phase = (c.phase, c.operation)
             self.scan_storage()
         self.show_storage()
+
+    def refresh_voice_status(self, cached):
+        c, listener = self.app.session, self.app.handsfree
+        phrase = c.preferences.wake_phrase
+        if not cached:
+            status = "Download the selected local model before enabling hands-free commands."
+        elif not listener or not listener.enabled:
+            status = "Listening is off. Enable hands-free commands and Save to start."
+        elif listener.problem:
+            status = listener.problem
+        elif c.busy:
+            status = "Listening is paused while DictaDesk finishes the current operation."
+        else:
+            status = {
+                "wake": f"Listening for “{phrase}”. Audio stays on this computer.",
+                "processing": f"Checking speech for “{phrase}”…",
+                "command": "Wake phrase heard. Listening for a command…",
+                "loading": "Loading the local speech model…",
+                "paused": "Voice commands are paused. Resume them from the tray.",
+            }.get(listener.state, f"Starting local listening for “{phrase}”…")
+        draft = self.wake_phrase.get_text().strip()
+        if draft != phrase:
+            status += f" Save to change the active wake phrase from “{phrase}” to “{draft}”."
+        self.voice_status.set_subtitle(status)
 
     def scan_storage(self):
         self.storage_busy = True

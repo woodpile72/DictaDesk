@@ -12,6 +12,7 @@ from ..core.diagnostics import event, failure
 
 BLOCK_SECONDS = 0.1
 MAX_AUDIO_SECONDS = 8
+PRE_ROLL_SAMPLES = RATE // 5
 
 
 def speech_level(data):
@@ -106,6 +107,12 @@ class MemoryInput:
 def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_seconds=8):
     """Consume one utterance, requiring fresh speech after any boundary reset."""
     audio = bytearray()
+    # Keep quiet context and weak consonants before the threshold crossing.
+    # Dropping these made short wake words depend on callback alignment and
+    # left the recognizer with an artificially abrupt start. This is transient
+    # memory, scoped to this one utterance, never a saved microphone recording.
+    preceding = bytearray(PRE_ROLL_SAMPLES * 2)
+    audio_limit = min(int(max_seconds * RATE) + PRE_ROLL_SAMPLES, MAX_AUDIO_SECONDS * RATE) * 2
     voiced = quiet = 0
     armed = not require_quiet
     started = time.monotonic()
@@ -115,6 +122,8 @@ def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_sec
             break
         speaking = speech_level(block) >= threshold
         if not armed:
+            preceding.extend(block)
+            del preceding[: -PRE_ROLL_SAMPLES * 2]
             quiet = 0 if speaking else quiet + 1
             if quiet >= 3:
                 armed, quiet = True, 0
@@ -124,15 +133,22 @@ def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_sec
             quiet = 0
         elif audio:
             quiet += 1
+        if speaking and not audio:
+            audio.extend(preceding)
+            preceding.clear()
         if speaking or audio:
             audio.extend(block)
-        if quiet >= 5 or len(audio) >= max_seconds * RATE * 2:
+        else:
+            preceding.extend(block)
+            del preceding[: -PRE_ROLL_SAMPLES * 2]
+        if quiet >= 5 or len(audio) >= audio_limit:
             break
-    result = bytes(audio) if not stop.is_set() and voiced >= 2 else b""
+    result = bytes(audio[:audio_limit]) if not stop.is_set() and voiced >= 2 else b""
     event(
         "handsfree.utterance",
         samples=len(result) // 2,
         voiced_blocks=voiced,
+        preroll_samples=PRE_ROLL_SAMPLES if result else 0,
         elapsed=round(time.monotonic() - started, 3),
         cancelled=stop.is_set(),
     )

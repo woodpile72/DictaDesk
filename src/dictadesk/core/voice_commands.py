@@ -1,16 +1,53 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Exact wake/command grammar; application suggestions never execute speech."""
+"""Bounded wake matching and exact command grammar; suggestions never execute speech."""
 
 from difflib import SequenceMatcher
 from pathlib import Path
 from .commands import words, percentage, recognize  # noqa: F401
 
 
-def wake_matches(text, phrase):
+def wake_match_kind(text, phrase):
     needle, haystack = words(phrase), words(text)
-    return bool(needle) and any(
+    if not needle:
+        return None
+    if any(
         haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1)
-    )
+    ):
+        return "exact"
+    # A short, rare wake word can lose an unstressed ending or one interior
+    # consonant in ordinary ASR. Allow ONE such token, only when the ENTIRE
+    # utterance is the configured phrase. Never search sentences approximately,
+    # accept arbitrary prefixes, change an initial sound/vowel, or loosen commands.
+    if len(needle) != len(haystack):
+        return None
+    changes = 0
+    vowels = frozenset("aeiouy")
+    for expected, heard in zip(needle, haystack):
+        if expected == heard:
+            continue
+        changes += 1
+        if (
+            changes > 1
+            or len(expected) < 6
+            or expected[:3] != heard[:3]
+            or not expected.isascii()
+            or not expected.isalpha()
+            or not heard.isascii()
+            or not heard.isalpha()
+        ):
+            return None
+        if len(expected) >= 7 and expected.endswith("er") and heard == expected[:-2]:
+            continue
+        if len(expected) != len(heard) or expected[-2:] != heard[-2:]:
+            return None
+        different = [(a, b) for a, b in zip(expected, heard) if a != b]
+        if len(different) != 1 or any(c in vowels for pair in different for c in pair):
+            return None
+    return "limited" if changes else None
+
+
+def wake_matches(text, phrase):
+    return wake_match_kind(text, phrase) is not None
 
 
 def command(text, preferences=None):
