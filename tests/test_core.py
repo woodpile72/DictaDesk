@@ -37,6 +37,40 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(self.store.read(), p)
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
 
+    def test_old_default_wake_phrases_upgrade_without_other_changes(self):
+        from dataclasses import asdict
+
+        for phrase in ("Clanker", "Hey Clanker", " clanker ", "HEY  CLANKER"):
+            with self.subTest(phrase=phrase):
+                old = Preferences(
+                    wake_phrase=phrase,
+                    hands_free=True,
+                    volume_step=7,
+                    microphone="Laptop Mic",
+                    tts_enabled=True,
+                    tts_phrase="Ready",
+                    vocabulary=[["eric", "Erick"]],
+                )
+                raw = json.dumps({"schema": 1, "preferences": asdict(old)}).encode()
+                self.path.write_bytes(raw)
+                current = self.store.read()
+                self.assertFalse(self.store.problem)
+                self.assertEqual(current, replace(old, wake_phrase="Computer"))
+                self.assertEqual(self.path.read_bytes(), raw)
+                self.store.save(current)
+                self.assertEqual(self.store.read(), current)
+
+    def test_custom_wake_phrases_remain_configurable_after_migration(self):
+        for phrase in ("Hello Desk", "Computer", "Clanker", "Hey Clanker"):
+            with self.subTest(phrase=phrase):
+                prefs = Preferences(wake_phrase=phrase)
+                self.store.save(prefs)
+                self.assertEqual(self.store.read(), prefs)
+        self.path.write_text(
+            json.dumps({"schema": 1, "preferences": {"wake_phrase": "Hello Desk"}})
+        )
+        self.assertEqual(self.store.read().wake_phrase, "Hello Desk")
+
     def test_existing_pause_setting_gets_separate_sentence_default(self):
         self.path.write_text(json.dumps({"schema": 1, "preferences": {"pause_seconds": 0.8}}))
         prefs = self.store.read()

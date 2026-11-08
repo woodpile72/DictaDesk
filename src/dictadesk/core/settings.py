@@ -15,6 +15,8 @@ LEGACY_REMOTE_MODELS = (
     "gpt-4o-transcribe",
     "whisper-1",
 )
+DEFAULT_WAKE_PHRASE = "Computer"
+LEGACY_WAKE_PHRASES = {"clanker", "hey clanker"}
 
 
 def directory(kind):
@@ -31,7 +33,7 @@ def directory(kind):
 class Preferences:
     backend: str = "local"
     hands_free: bool = False
-    wake_phrase: str = "Clanker"
+    wake_phrase: str = DEFAULT_WAKE_PHRASE
     command_sound: bool = True
     tts_enabled: bool = False
     tts_engine: str = "piper"
@@ -216,6 +218,15 @@ class SettingsStore:
             if not isinstance(data["preferences"], dict):
                 raise ValueError("Invalid preferences object")
             values = dict(data["preferences"])
+            # Upgrade only the former defaults in pre-migration files. The
+            # marker written on Save lets users explicitly choose them again.
+            phrase = values.get("wake_phrase")
+            if (
+                "wake_phrase_default" not in data
+                and isinstance(phrase, str)
+                and " ".join(phrase.casefold().split()) in LEGACY_WAKE_PHRASES
+            ):
+                values["wake_phrase"] = DEFAULT_WAKE_PHRASE
             # Earlier versions offered hold/toggle. Both now use tap-to-start;
             # retire that setting without resetting any other preferences.
             if "mode" in values and values.pop("mode") not in ("hold", "toggle"):
@@ -237,7 +248,13 @@ class SettingsStore:
         private_write(
             self.path,
             json.dumps(
-                {"schema": 1, "preferences": asdict(prefs)}, ensure_ascii=False, indent=2
+                {
+                    "schema": 1,
+                    "wake_phrase_default": DEFAULT_WAKE_PHRASE,
+                    "preferences": asdict(prefs),
+                },
+                ensure_ascii=False,
+                indent=2,
             ).encode(),
         )
 

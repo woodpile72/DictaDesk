@@ -125,16 +125,19 @@ It is off by default, requires an installed local model, and keeps that model
 resident while enabled. Remote mode suspends it, even if a local preference
 was saved as enabled. Ordinary shortcut/button dictation retains priority.
 
-The wake phrase defaults to "Clanker"; saved custom phrases are preserved. Matching uses complete normalized words,
-without fuzzy matching. Pause after saying it, wait for the acknowledgment and
-brief echo guard, then say "open Firefox", "launch Calibre" or "cancel".
+The wake phrase defaults to "Computer". Old Clanker/Hey Clanker defaults migrate
+on read; other custom phrases are preserved. Saving records the migration so an
+explicitly chosen old phrase remains configurable. Matching uses complete
+normalized words, with narrowly bounded tolerance for an isolated wake phrase.
+Say "Computer, open Firefox" in one utterance, or say the wake phrase alone,
+wait for the acknowledgment and brief echo guard, then speak a command.
 The command capture window is eight seconds. Capture is closed during recognition,
 acknowledgment and application launch feedback. Wake buffers contain at most
 six seconds of PCM; command buffers at most eight seconds; neither is written
 to disk. These are ordinary local recognition models, not speaker identification:
 audible speech from other people or media can activate the configured phrase.
 
-Blue means local wake listening; slowly flashing blue means an activated command.
+Blue means local wake listening; an activated command uses a steady recording badge.
 Normal dictation remains red. Loading, recognition and unavailable states retain
 the existing indicators. The tray has a local-only hands-free toggle.
 Application names resolve through installed desktop entries. Explicitly hidden
@@ -264,7 +267,7 @@ The 1.2.0 checks cover tray-only startup, original field/selection restoration,
 page invalidation, uninserted-text recovery, registry/help consistency and timed
 listening pause/resume. Microphone mute/unmute commands are intentionally omitted;
 the timed pause affects only wake listening and leaves dictation available.
-The synthetic English voice pronounced the default phrase as "Clanker" but
+The synthetic English voice pronounced the previous default phrase as "Clanker" but
 Parakeet recognized "Langer"; exact matching correctly rejected it. Wake accuracy
 with the user's real microphone and voice remains a human acceptance check.
 

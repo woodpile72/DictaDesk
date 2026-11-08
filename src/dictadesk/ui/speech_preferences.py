@@ -6,12 +6,16 @@ import time
 
 from ..core.tts import ENGINES, VOICES
 from .gtk import Adw, Gtk
+from .widgets import experimental_banner
 
 
 class SpeechPreferences:
     def __init__(self, app):
         self.app = app
         prefs = app.session.preferences
+        self.banner_group = Adw.PreferencesGroup()
+        self.banner = experimental_banner()
+        self.banner_group.add(self.banner)
         self.group = Adw.PreferencesGroup(
             title="Talk Back — Experimental",
             description="Optional spoken wake acknowledgment. Off by default. Voices are downloaded only when you choose Download; speech stays on this computer.",

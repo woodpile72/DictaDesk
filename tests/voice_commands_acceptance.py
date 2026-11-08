@@ -51,23 +51,23 @@ def preferences():
     assert p.voice_banner_group.get_visible()
     assert p.voice_banner.get_label() == "Experimental"
     assert not p.controls["hands_free"].get_active()
-    assert p.wake_phrase.get_text() == "Clanker"
+    assert p.wake_phrase.get_text() == "Computer"
     assert p.controls["command_sound"].get_active()
     assert "off" in p.voice_status.get_subtitle().lower()
     app.session.preferences.hands_free = True
     app.handsfree.state = "wake"
     p.refresh_backend()
-    assert "Listening for “Clanker”" in p.voice_status.get_subtitle()
+    assert "Listening for “Computer”" in p.voice_status.get_subtitle()
     p.wake_phrase.set_text("Hello Desk")
     assert "Save to change" in p.voice_status.get_subtitle()
-    assert "from “Clanker” to “Hello Desk”" in p.voice_status.get_subtitle()
+    assert "from “Computer” to “Hello Desk”" in p.voice_status.get_subtitle()
     app.handsfree.problem = "Microphone interrupted. Retrying in five seconds."
     p.refresh_backend()
     assert "Retrying" in p.voice_status.get_subtitle()
     app.handsfree.problem = ""
     app.handsfree.state = "off"
     app.session.preferences.hands_free = False
-    p.wake_phrase.set_text("Clanker")
+    p.wake_phrase.set_text("Computer")
     p.controls["backend"][0].set_selected(1)
     assert not p.voice_group.get_visible()
     assert not p.voice_banner_group.get_visible()

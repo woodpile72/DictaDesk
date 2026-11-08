@@ -19,7 +19,7 @@ from ..core.credentials import read_key
 from ..core.connection import test_connection
 from ..desktop.keyboard import Chord
 from .gtk import Adw, Gdk, Gtk
-from .widgets import text
+from .widgets import experimental_banner, text
 from .speech_preferences import SpeechPreferences
 
 
@@ -293,16 +293,7 @@ class PreferencesDialog:
         )
         self.pages["commands"].add(self.commands_requirement)
         self.voice_banner_group = Adw.PreferencesGroup()
-        self.voice_banner = Gtk.Label(label="Experimental", wrap=True, hexpand=True)
-        self.voice_banner.add_css_class("voice-experimental")
-        self.voice_banner_css = Gtk.CssProvider()
-        self.voice_banner_css.load_from_data(
-            b".voice-experimental { background-color: #b71c1c; color: #ffffff; "
-            b"font-weight: 700; padding: 10px 12px; border-radius: 8px; }"
-        )
-        self.voice_banner.get_style_context().add_provider(
-            self.voice_banner_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        self.voice_banner = experimental_banner()
         self.voice_banner_group.add(self.voice_banner)
         self.pages["commands"].add(self.voice_banner_group)
         self.voice_group = Adw.PreferencesGroup(
@@ -458,6 +449,7 @@ class PreferencesDialog:
         self.render_rules()
         # Stable dictation opens first; experiments have their own tabs.
         self.speech_settings = SpeechPreferences(app)
+        self.pages["tts"].add(self.speech_settings.banner_group)
         self.pages["tts"].add(self.speech_settings.group)
         self.backend_visibility()
         self.dialog.connect("close-request", self.closed)

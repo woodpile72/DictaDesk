@@ -23,7 +23,7 @@ assert __version__ == os.environ.get("DICTADESK_EXPECT_VERSION", "1.2.0")
 assert onnxruntime.get_available_providers()
 defaults = SettingsStore().read()
 assert defaults.local_model == "parakeet"
-assert not defaults.hands_free and defaults.wake_phrase == "Clanker"
+assert not defaults.hands_free and defaults.wake_phrase == "Computer"
 assert defaults.command_sound
 assert Path("/usr/lib/dictadesk/dictadesk/resources/dictadesk-panel-wake-color.svg").is_file()
 assert Path(

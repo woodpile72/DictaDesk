@@ -107,6 +107,10 @@ def start():
     assert p.controls["hands_free"].is_ancestor(p.pages["commands"])
     assert p.controls["volume_step"].is_ancestor(p.pages["commands"])
     assert p.speech_settings.enabled.is_ancestor(p.pages["tts"])
+    assert p.speech_settings.banner.is_ancestor(p.pages["tts"])
+    for banner in (p.voice_banner, p.speech_settings.banner):
+        assert banner.get_label() == "Experimental"
+        assert banner.has_css_class("experimental-banner")
     later(dictation)
 
 
@@ -132,6 +136,7 @@ def download():
     p = app.preferences_dialog
     s = p.speech_settings
     assert p.stack.get_visible_child_name() == "tts"
+    assert s.banner.get_mapped()
     assert not s.enabled.get_active() and not s.enabled.get_sensitive()
     assert s.phrase.get_text() == "Hello"
     assert s.download.get_sensitive() and not s.preview.get_sensitive()

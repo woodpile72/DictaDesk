@@ -114,7 +114,7 @@ class ParsingTests(unittest.TestCase):
         p = Preferences()
         self.assertFalse(p.hands_free)
         self.assertTrue(p.command_sound)
-        self.assertEqual(p.wake_phrase, "Clanker")
+        self.assertEqual(p.wake_phrase, "Computer")
         for phrase in ("", "   ", "!!!", "a " * 13, "x" * 121):
             with self.assertRaises(ValueError):
                 replace(p, wake_phrase=phrase).validate()
@@ -123,6 +123,15 @@ class ParsingTests(unittest.TestCase):
             changed = replace(p, hands_free=True, wake_phrase="Hey Mint", command_sound=False)
             store.save(changed)
             self.assertEqual(store.read(), changed)
+
+    def test_computer_default_supports_both_command_forms(self):
+        phrase = Preferences().wake_phrase
+        self.assertEqual(wake_activation("COMPUTER!", phrase), ("exact", ""))
+        kind, text = wake_activation("Computer, lock screen!", phrase)
+        self.assertEqual(kind, "exact")
+        self.assertEqual(command(text), ("lock", ()))
+        for text in ("Clanker", "computers", "computerized", "commute"):
+            self.assertFalse(wake_matches(text, phrase), text)
 
     def test_command_scope_and_exact_application_resolution(self):
         apps = [
@@ -360,7 +369,7 @@ class CoordinatorTests(unittest.TestCase):
         return active
 
     def test_wake_and_next_utterance_are_separate_and_local(self):
-        active = self.prepare(["Hey Clanker", "open Calibre"])
+        active = self.prepare(["Computer", "open Calibre"])
 
         def launch(query, generation, *, heard):
             self.assertEqual(query, ("calibre",))
@@ -390,7 +399,7 @@ class CoordinatorTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.setUp()
-                active = self.prepare(["Clanker", text])
+                active = self.prepare(["Computer", text])
                 action = Mock()
 
                 def execute(actual_kind, actual_arguments, generation, *, heard):
@@ -452,7 +461,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertTrue(self.hf.enabled)
 
     def test_unknown_command_reports_only_post_wake_words(self):
-        self.prepare(["private background Hey Clanker", "please open the thing"])
+        self.prepare(["private background Computer", "please open the thing"])
         with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
             self.hf.run(0, self.hf.stop, self.session.preferences)
         self.launch.assert_not_called()
@@ -468,7 +477,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(diagnostic(""), "Heard: No command recognized.")
 
     def test_spoken_choice_uses_same_local_worker_and_releases_capture(self):
-        active = self.prepare(["Hey Clanker", "open Calibre", "two"])
+        active = self.prepare(["Computer", "open Calibre", "two"])
         selected = []
 
         def choose(number, heard):
@@ -568,11 +577,11 @@ class CoordinatorTests(unittest.TestCase):
         for change in ("disable", "dictation", "remote", "cancel", "lock"):
             with self.subTest(change=change):
                 self.setUp()
-                self.prepare(["Hey Clanker"])
+                self.prepare(["Computer"])
 
                 def recognition(payload, *_args, **_kwargs):
                     if self.hf.recognitions == 1:
-                        return {"text": "Hey Clanker"}
+                        return {"text": "Computer"}
                     if change == "disable":
                         self.session.preferences.hands_free = False
                     elif change == "lock":
@@ -591,7 +600,7 @@ class CoordinatorTests(unittest.TestCase):
                 self.launch.assert_not_called()
 
     def test_queued_action_is_invalidated_before_delivery(self):
-        self.prepare(["Hey Clanker", "open Firefox"])
+        self.prepare(["Computer", "open Firefox"])
         queued = []
 
         def dispatch(fn):
@@ -612,7 +621,7 @@ class CoordinatorTests(unittest.TestCase):
         for text in ("cancel", ""):
             with self.subTest(text=text):
                 self.setUp()
-                self.prepare(["Hey Clanker", text])
+                self.prepare(["Computer", text])
                 calls = []
 
                 def audio(*_, **kwargs):
@@ -635,9 +644,9 @@ class CoordinatorTests(unittest.TestCase):
                 self.assertEqual(self.hf.recognitions, 2)
 
     def test_inline_command_uses_one_utterance_and_never_waits_for_beep_or_tts(self):
-        self.session.preferences.wake_phrase = "Clanker"
+        self.session.preferences.wake_phrase = "Computer"
         self.session.preferences.tts_enabled = True
-        self.prepare(["Clanker open Firefox"])
+        self.prepare(["Computer open Firefox"])
         self.hf.beep = Mock()
         self.hf.speech_acknowledge = Mock()
         self.launch.side_effect = lambda *a, **kw: self.hf.complete(0)
@@ -654,7 +663,7 @@ class CoordinatorTests(unittest.TestCase):
         for answer in (True, False, RuntimeError("optional output failed")):
             self.setUp()
             self.session.preferences.tts_enabled = True
-            self.prepare(["Hey Clanker", "open Firefox"])
+            self.prepare(["Computer", "open Firefox"])
             self.hf.beep = Mock()
             self.hf.speech_acknowledge = Mock()
             if isinstance(answer, Exception):
@@ -669,7 +678,7 @@ class CoordinatorTests(unittest.TestCase):
             self.launch.assert_called_once()
 
     def test_unknown_inline_command_reports_once_without_listening_for_another(self):
-        self.prepare(["Hey Clanker run arbitrary shell"])
+        self.prepare(["Computer run arbitrary shell"])
         self.hf.beep = Mock()
         with patch("dictadesk.core.handsfree.utterance", return_value=VOICE) as capture:
             self.hf.run(0, self.hf.stop, self.session.preferences)
@@ -821,7 +830,7 @@ class CoordinatorTests(unittest.TestCase):
         def request(*_, **__):
             entered.set()
             release.wait(2)
-            return {"text": "Hey Clanker open Firefox"}
+            return {"text": "Computer open Firefox"}
 
         self.session.recognizer.request.side_effect = request
         with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):

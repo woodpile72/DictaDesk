@@ -289,6 +289,6 @@ class SpeechSettingsTests(unittest.TestCase):
                 json.dumps({"schema": 1, "preferences": {"wake_phrase": "Hey Clanker"}})
             )
             loaded = SettingsStore(path).read()
-            self.assertEqual(loaded.wake_phrase, "Hey Clanker")
+            self.assertEqual(loaded.wake_phrase, "Computer")
             self.assertFalse(loaded.tts_enabled)
             self.assertEqual(loaded.tts_phrase, "Hello")

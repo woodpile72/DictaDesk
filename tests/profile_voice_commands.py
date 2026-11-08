@@ -66,7 +66,7 @@ try:
     trials = []
     samples = {}
     for text in [
-        "Clanker.",
+        "Computer.",
         "Hello computer.",
         "Open Firefox.",
         "Launch Calibre.",
@@ -101,7 +101,7 @@ try:
         }
         for trial in trials[-6:]
     ]
-    result["default_wake_matched"] = wake_matches(trials[0]["recognized"], "Clanker")
+    result["default_wake_matched"] = wake_matches(trials[0]["recognized"], "Computer")
     result["alternate_wake_matched"] = wake_matches(trials[1]["recognized"], "Hello computer")
     result["firefox_command_matched"] = command(trials[2]["recognized"]) == (
         "open",

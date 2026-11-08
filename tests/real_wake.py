@@ -112,16 +112,17 @@ try:
         },
         threading.Event(),
     )
-    for wake in ("Clanker", "Hey Clanker", "Hello computer"):
+    default = Preferences().wake_phrase
+    for wake in (default, "Hey computer", "Hello computer"):
         for offset in (0, 50, 100, 150):
             run(wake, wake + ".", offset)
-    run("Clanker", "Clanker", 50)
-    run("Clanker", "Clanker.", 50, gain=0.5)
-    run("Clanker", "Clanker.", 50, gain=0.1, threshold=0.003)
-    run("Clanker", "Clanker open Firefox.", 50, inline=True)
+    run(default, default, 50)
+    run(default, default + ".", 50, gain=0.5)
+    run(default, default + ".", 50, gain=0.1, threshold=0.003)
+    run(default, default + " open Firefox.", 50, inline=True)
     run("Hello computer", "Hello computer open Firefox.", 150, inline=True)
     for text in ("Thank you.", "Open Firefox.", "What is the weather today?"):
-        run("Clanker", text, 50, expected=False)
+        run(default, text, 50, expected=False)
     print(json.dumps({"generated_audio_only": True, "trials": trials}, indent=2))
     print(
         "PASS real local wake lifecycle: default/custom phrases, callback alignment, one acknowledgment/action, negative speech rejected, no microphone/playback/launch"
