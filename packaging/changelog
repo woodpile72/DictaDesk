@@ -10,6 +10,8 @@ dictadesk (1.2.0) unstable; urgency=medium
   * Recover recording state after cancellation, empty results and processing errors.
   * Add private metadata diagnostics and bounded speech-worker communication.
   * Keep panel icon sizing and artwork consistent across state changes.
+  * Separate shared settings from dictation and optional feature preferences.
+  * Improve recognition feedback and tolerate bounded transcription variants.
 
  -- Erick Woods <woodpile72@users.noreply.github.com>  Sun, 08 Nov 2026 15:57:05 +0000
 

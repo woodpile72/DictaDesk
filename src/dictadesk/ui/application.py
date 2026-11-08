@@ -133,7 +133,6 @@ class Application(Adw.Application):
             capture_destination=self.capture_command_destination,
             speech_acknowledge=self.speech.acknowledge,
             output_busy=lambda: self.speech.previewing,
-            wake_detected=self.wake_feedback,
         )
         self.session.handsfree = self.handsfree
         self.session.stream_delivered = self.deliver_segment
@@ -209,7 +208,7 @@ class Application(Adw.Application):
         label = {
             "app.preferences": "Preferences",
             "app.show": "Preferences",
-            "app.talkback-preferences": "Talk Back",
+            "app.talkback-preferences": "Speech",
         }[action]
         notification.add_button(label, action)
         try:
@@ -282,8 +281,8 @@ class Application(Adw.Application):
             ),
             "talkback": (
                 self.speech.problem if self.speech else "",
-                "Talk Back unavailable",
-                "Check the Talk Back tab in Preferences. Dictation remains available.",
+                "Speech unavailable",
+                "Check the Speech tab in Preferences. Dictation remains available.",
             ),
         }
         for kind, (reason, title, body) in problems.items():
@@ -655,18 +654,6 @@ class Application(Adw.Application):
             note.set_body(f"{message}\n{details}" if details else message)
             note.set_priority(Gio.NotificationPriority.LOW)
             self.send_notification("voice-commands", note)
-
-    def wake_feedback(self, inline):
-        if not self.notifications_enabled or self.shutting_down:
-            return
-        note = Gio.Notification.new("Wake phrase heard")
-        note.set_body(
-            "Wake phrase heard. Checking your command."
-            if inline
-            else "Wake phrase heard. Speak your command after the acknowledgment."
-        )
-        note.set_priority(Gio.NotificationPriority.NORMAL)
-        self.send_notification("wake-detected", note)
 
     def capture_command_destination(self):
         return self.destinations.capture() if self.destinations else Target(None)
@@ -1045,7 +1032,7 @@ class Application(Adw.Application):
             self.usage_window = UsageWindow(self)
         self.usage_window.present(page)
 
-    def show_preferences(self, page="dictation"):
+    def show_preferences(self, page="general"):
         if self.session.busy:
             return
         if self.preferences_dialog is None:
@@ -1102,7 +1089,7 @@ class Application(Adw.Application):
             if model is None and (self.speech.downloading or self.speech.removing):
                 self.notify_issue(
                     "Downloads are busy",
-                    "Wait for the Talk Back download or removal to finish, or cancel its download in Preferences, before removing all downloads.",
+                    "Wait for the Speech download or removal to finish, or cancel its download in Preferences, before removing all downloads.",
                     "app.talkback-preferences",
                     "storage",
                 )
@@ -1114,7 +1101,7 @@ class Application(Adw.Application):
             body=(
                 f"Remove all {LOCAL_MODELS[model]['name']} downloads and backups? Other models and preferences will remain."
                 if model
-                else "Remove all downloaded dictation models and optional Talk Back engines/voices for your account. Your preferences will remain. You can download them again later."
+                else "Remove all downloaded dictation models and optional Speech engines/voices for your account. Your preferences will remain. You can download them again later."
             ),
         )
         dialog.add_response("cancel", "Cancel")

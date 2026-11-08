@@ -88,7 +88,7 @@ def click(widget):
 def start():
     app.session.microphone_problem = ""
     app.session.recognizer.loaded = True
-    app.show_preferences()
+    app.show_preferences("dictation")
     later(preferences)
 
 

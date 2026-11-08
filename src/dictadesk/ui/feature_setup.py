@@ -13,7 +13,7 @@ class FeatureSetup:
         self.closed = False
         self.own_download = None
         self.step = 0
-        title = "Set Up Command & Control" if kind == "commands" else "Set Up Talk Back"
+        title = "Set Up Control" if kind == "commands" else "Set Up Speech"
         self.dialog = Adw.Dialog(title=title, content_width=560, content_height=520)
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()

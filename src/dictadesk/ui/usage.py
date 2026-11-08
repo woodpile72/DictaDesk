@@ -54,8 +54,8 @@ class UsageWindow:
         self.pages = {}
         for name, title, icon in (
             ("dictation", "Dictation", "audio-input-microphone-symbolic"),
-            ("commands", "Command & Control", "preferences-system-symbolic"),
-            ("tts", "Talk Back", "audio-speakers-symbolic"),
+            ("commands", "Control", "preferences-system-symbolic"),
+            ("tts", "Speech", "audio-speakers-symbolic"),
         ):
             content = Gtk.Box(
                 orientation=Gtk.Orientation.VERTICAL,
@@ -190,7 +190,7 @@ class UsageWindow:
         )
         self.table(parent, "Dictation Formatting", p)
         parent = self.pages["commands"]
-        self.heading(parent, "Command & Control — Experimental")
+        self.heading(parent, "Control — Experimental")
         acknowledgment = (
             f"the spoken acknowledgment “{p.tts_phrase}”"
             if p.tts_enabled
@@ -201,7 +201,7 @@ class UsageWindow:
         self.wake = self.section(
             parent,
             "Optional local voice commands",
-            f"Enable Command & Control in Preferences. If required files are missing, guided setup asks you to choose the local engine and model, download it, then Enable and Save. It listens continuously only while enabled.\n\n"
+            f"Enable Control in Preferences. If required files are missing, guided setup asks you to choose the local engine and model, download it, then Enable and Save. It listens continuously only while enabled.\n\n"
             f"One phrase: say “{p.wake_phrase}, lock screen” or “{p.wake_phrase}, volume down fifteen percent”, then pause. DictaDesk executes one complete recognized command directly, without waiting for an acknowledgment.\n\n"
             f"Two steps: say “{p.wake_phrase}” alone, wait for {acknowledgment}, then speak a supported command.\n\n"
             "Say the wake phrase on its own if using the two-step workflow. Small recognition errors can be tolerated in an isolated wake phrase; combined commands require the actual wake phrase. Escape cancels an active command. Dictation always takes priority. Unrecognized, incomplete or combined multiple commands never execute. Pause Voice Commands in the tray pauses listening for 30 minutes; Resume Voice Commands Now resumes sooner.",
@@ -216,12 +216,12 @@ class UsageWindow:
             if category != "Dictation Formatting":
                 self.table(parent, category, p)
         parent = self.pages["tts"]
-        self.heading(parent, "Talk Back — Experimental")
+        self.heading(parent, "Speech — Experimental")
         self.tts = self.section(
             parent,
             "Optional spoken acknowledgment",
             f"Off by default. Current setting: {'enabled' if p.tts_enabled else 'disabled'}. The saved acknowledgment is “{p.tts_phrase}”.\n\n"
-            "1. Open Preferences and select the Talk Back tab.\n2. Turn on spoken acknowledgment. If files are missing, guided setup asks you to choose an engine and voice, then download Piper's optional files or install eSpeak NG through the system installer. Choose Check Again after installing eSpeak; no restart is needed.\n3. Enable when setup shows Ready. Test Voice previews your choices without saving.\n4. Save Preferences to apply them.\n\n"
+            "1. Open Preferences and select the Speech tab.\n2. Turn on spoken acknowledgment. If files are missing, guided setup asks you to choose an engine and voice, then download Piper's optional files or install eSpeak NG through the system installer. Choose Check Again after installing eSpeak; no restart is needed.\n3. Enable when setup shows Ready. Test Voice previews your choices without saving.\n4. Save Preferences to apply them.\n\n"
             f"When you say “{p.wake_phrase}” alone, DictaDesk speaks “{p.tts_phrase}” instead of the beep before listening for your command. A combined wake phrase and command executes directly without speech delaying it. The configured beep is a fallback if synthesis fails.\n\n"
             "Downloads happen only when you choose Download. Synthesis and playback stay local. No speech model or TTS process is needed for ordinary dictation. Starting dictation or Stop Preview interrupts a preview. Remove TTS Downloads removes only optional speech files, leaving dictation models intact.",
         )

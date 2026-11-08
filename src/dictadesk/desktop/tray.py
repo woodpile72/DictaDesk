@@ -225,8 +225,8 @@ class Tray:
             ),
             8: ("About DictaDesk", "about", True),
             9: ("Dictation Help…", "usage", True),
-            11: ("Command & Control Help…", "command-help", True),
-            12: ("Talk Back Help…", "tts-help", True),
+            11: ("Control Help…", "command-help", True),
+            12: ("Speech Help…", "tts-help", True),
             10: (
                 "Resume Voice Commands Now"
                 if self.app.handsfree and self.app.handsfree.paused

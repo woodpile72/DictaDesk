@@ -55,9 +55,10 @@ class PreferencesDialog:
         self.stack = Adw.ViewStack()
         self.pages = {}
         for name, title, icon in (
+            ("general", "General", "preferences-other-symbolic"),
             ("dictation", "Dictation", "audio-input-microphone-symbolic"),
-            ("commands", "Command & Control", "preferences-system-symbolic"),
-            ("tts", "Talk Back", "audio-speakers-symbolic"),
+            ("commands", "Control", "preferences-system-symbolic"),
+            ("tts", "Speech", "audio-speakers-symbolic"),
         ):
             panel = Adw.PreferencesPage()
             self.pages[name] = panel
@@ -292,7 +293,7 @@ class PreferencesDialog:
         self.commands_requirement = Adw.PreferencesGroup(
             title="Local transcription required",
             visible=False,
-            description="Command &amp; Control needs local speech recognition. Enable hands-free commands to choose an engine and model in guided setup.",
+            description="Control needs local speech recognition. Enable hands-free commands to choose an engine and model in guided setup.",
         )
         self.pages["commands"].add(self.commands_requirement)
         self.voice_banner_group = Adw.PreferencesGroup()
@@ -310,8 +311,8 @@ class PreferencesDialog:
         self.command_setup.add(self.command_setup_row)
         self.pages["commands"].add(self.command_setup)
         self.voice_group = Adw.PreferencesGroup(
-            title="Command &amp; Control",
-            description="Keeps the microphone listening locally. Say the wake phrase and command together, or say the wake phrase, wait for the acknowledgment, then speak a supported command. Open Command &amp; Control Help for the available controls. Dictation takes priority.",
+            title="Control",
+            description="Keeps the microphone listening locally. Say the wake phrase and command together, or say the wake phrase, wait for the acknowledgment, then speak a supported command. Open Control Help for the available controls. Dictation takes priority.",
         )
         self.pages["commands"].add(self.voice_group)
         hands_free = Adw.SwitchRow(
@@ -331,7 +332,7 @@ class PreferencesDialog:
         self.voice_group.add(self.voice_status)
         self.voice_group.add(
             Gtk.Button(
-                label="Command & Control Help…",
+                label="Control Help…",
                 action_name="app.command-help",
                 halign=Gtk.Align.START,
             )
@@ -460,7 +461,40 @@ class PreferencesDialog:
         self.message.add_css_class("error")
         self.vocabulary.add(self.message)
         self.render_rules()
-        # Stable dictation opens first; experiments have their own tabs.
+        # Shared input, recognition and desktop settings live on General.
+        general = self.pages["general"]
+        appearance = Adw.PreferencesGroup(title="Startup and Appearance")
+        for group in (
+            self.setup_group,
+            self.attention_group,
+            inputs,
+            appearance,
+            speech,
+            local,
+            remote,
+            self.cleanup_group,
+        ):
+            if group is not appearance:
+                page.remove(group)
+            general.add(group)
+        for key in ("autostart", "symbolic"):
+            row = self.controls[key]
+            desktop.remove(row)
+            appearance.add(row)
+        self.dictation_local_group = Adw.PreferencesGroup(title="Local Dictation")
+        for row in (preview, live):
+            local.remove(row)
+            self.dictation_local_group.add(row)
+        page.add(self.dictation_local_group)
+        self.shared_model_rows = []
+        for name in ("dictation", "commands"):
+            group = Adw.PreferencesGroup(title="Shared Recognition")
+            row = Adw.ActionRow(title="Microphone and Transcription", activatable=True)
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda *_: self.present("general"))
+            group.add(row)
+            self.pages[name].add(group)
+            self.shared_model_rows.append(row)
         self.speech_settings = SpeechPreferences(app)
         self.pages["tts"].add(self.speech_settings.banner_group)
         self.pages["tts"].add(self.speech_settings.setup_group)
@@ -608,6 +642,13 @@ class PreferencesDialog:
 
     def refresh_backend(self):
         self.model_constraints()
+        local_backend = self.controls["backend"][0].get_selected() == 0
+        self.dictation_local_group.set_visible(local_backend)
+        for row in self.shared_model_rows:
+            model_name = (
+                LOCAL_MODELS[self.selected_model()]["name"] if local_backend else "Remote"
+            )
+            row.set_subtitle(f"{model_name} · Change shared settings in General")
         c = self.app.session
         local = self.controls["backend"][0].get_selected() == 0
         precision = self.selected_precision()
@@ -1046,18 +1087,18 @@ class PreferencesDialog:
         self.app.preferences_dialog = None
         self.app.bind_shortcuts()
 
-    def present(self, page="dictation"):
+    def present(self, page="general"):
         if self.app.keyboard:
             self.app.keyboard.clear()
         self.refresh()
-        self.stack.set_visible_child_name(page if page in self.pages else "dictation")
+        self.stack.set_visible_child_name(page if page in self.pages else "general")
         self.dialog.present()
         self.app.dispatch(self.offer_model_download)
 
     def offer_model_download(self):
         if (
             self.closed_flag
-            or self.stack.get_visible_child_name() != "dictation"
+            or self.stack.get_visible_child_name() != "general"
             or self.app.shutting_down
             or self.model_prompt
             or self.app.session.busy

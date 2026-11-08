@@ -55,6 +55,17 @@ class App:
 
 
 class ParsingTests(unittest.TestCase):
+    def test_screensaver_asr_variants_are_whole_commands_only(self):
+        for text in ("screenshaver", "screen shaver", "screensaber", "screen saber"):
+            with self.subTest(text=text):
+                self.assertEqual(command(text), ("screensaver", ()))
+                kind, suffix = wake_activation("Computer " + text, "Computer")
+                self.assertEqual(kind, "exact")
+                self.assertEqual(command(suffix), ("screensaver", ()))
+                self.assertEqual(command(text + " and lock screen"), ("unknown", ()))
+                self.assertEqual(command("please " + text), ("unknown", ()))
+                self.assertEqual(command("open " + text), ("open", tuple(text.split())))
+
     def test_wake_matches_complete_words_only(self):
         for text in ("Hey, MINT!", "Well... hey mint.", "HEY—MINT", "Hey mint open Firefox"):
             self.assertTrue(wake_matches(text, "Hey Mint"), text)

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Optional speech controls on the independent Talk Back preferences tab."""
+"""Optional speech controls on the independent Speech preferences tab."""
 
 from dataclasses import replace
 import shutil
@@ -21,7 +21,7 @@ class SpeechPreferences:
         self.installing = False
         self.setting_up = False
         self.group = Adw.PreferencesGroup(
-            title="Talk Back — Experimental",
+            title="Speech — Experimental",
             description="Optional spoken wake acknowledgment. Off by default. Voices are downloaded only when you choose Download; speech stays on this computer.",
         )
         self.enabled = Adw.SwitchRow(
@@ -81,7 +81,7 @@ class SpeechPreferences:
         buttons.insert(self.remove, -1)
         self.group.add(buttons)
         self.help = Gtk.Button(
-            label="Talk Back Help…", action_name="app.tts-help", halign=Gtk.Align.START
+            label="Speech Help…", action_name="app.tts-help", halign=Gtk.Align.START
         )
         self.group.add(self.help)
         self.engine.connect("notify::selected", self.engine_changed)
@@ -224,7 +224,7 @@ class SpeechPreferences:
             if ready
             else "Install eSpeak NG to use this voice"
             if engine == "espeak"
-            else "Download engine and voice to enable Talk Back"
+            else "Download engine and voice to enable Speech"
         )
         self.enabled.set_sensitive(not c.busy)
         self.engine.set_sensitive(not busy)
@@ -271,7 +271,7 @@ class SpeechPreferences:
         elif not ready and engine == "espeak":
             message = "This system voice requires the espeak-ng package. Choose Install eSpeak NG and confirm in the system installer, then Check Again. No restart is needed. You can also switch back to Piper."
         elif not ready:
-            message = f"Talk Back cannot speak until {VOICES[model].name} is downloaded. {VOICES[model].description} Choose Download here; ordinary dictation remains available."
+            message = f"Speech cannot speak until {VOICES[model].name} is downloaded. {VOICES[model].description} Choose Download here; ordinary dictation remains available."
         elif speech.notice:
             message = speech.notice
         else:

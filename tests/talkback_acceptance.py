@@ -103,8 +103,12 @@ def start():
     app.session.microphone_problem = ""
     app.show_preferences()
     p = app.preferences_dialog
-    assert p.stack.get_visible_child_name() == "dictation"
-    assert tuple(p.pages) == ("dictation", "commands", "tts")
+    assert p.stack.get_visible_child_name() == "general"
+    assert tuple(p.pages) == ("general", "dictation", "commands", "tts")
+    assert p.input.is_ancestor(p.pages["general"])
+    assert p.controls["local_model"][0].is_ancestor(p.pages["general"])
+    assert p.controls["autostart"].is_ancestor(p.pages["general"])
+    assert p.controls["continuous_live"].is_ancestor(p.pages["dictation"])
     assert p.controls["hands_free"].is_ancestor(p.pages["commands"])
     assert p.controls["volume_step"].is_ancestor(p.pages["commands"])
     assert p.speech_settings.enabled.is_ancestor(p.pages["tts"])
@@ -120,6 +124,13 @@ def dictation():
     monitor = p.dialog.get_display().get_monitor_at_surface(p.dialog.get_surface())
     assert p.dialog.get_width() <= monitor.get_geometry().width - 64
     assert p.dialog.get_height() <= monitor.get_geometry().height - 96
+    capture("general")
+    app.show_preferences("dictation")
+    later(dictation_page)
+
+
+def dictation_page():
+    p = app.preferences_dialog
     capture("dictation")
     app.show_preferences("commands")
     assert app.preferences_dialog is p
@@ -220,7 +231,7 @@ def save():
     assert app.preferences_dialog is None
     app.show_preferences()
     p = app.preferences_dialog
-    assert p.stack.get_visible_child_name() == "dictation"
+    assert p.stack.get_visible_child_name() == "general"
     assert p.speech_settings.values()["tts_phrase"] == "Ready for you"
     p.speech_settings.phrase.set_text("Discard me")
     p.dialog.close()
@@ -236,7 +247,7 @@ def save():
     app.usage_window.dialog.close()
     assert not app.get_windows()
     print(
-        "PASS Preferences tabs / Talk Back: default Dictation, independent sections, optional nonblocking download, unsaved preview, operation cancels output, Save/Cancel, separate dynamic help"
+        "PASS Preferences tabs / Speech: default General, independent sections, optional nonblocking download, unsaved preview, operation cancels output, Save/Cancel, separate dynamic help"
     )
     app.request_quit()
 

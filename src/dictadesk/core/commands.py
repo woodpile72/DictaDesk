@@ -408,6 +408,15 @@ def registry():
 
 def recognize(text, preferences=None):
     tokens = words(text)
+    # Observed ASR substitutions for this single command. Match only the
+    # entire utterance; never rewrite application names or arbitrary sentences.
+    if tokens in {
+        ("screenshaver",),
+        ("screen", "shaver"),
+        ("screensaber",),
+        ("screen", "saber"),
+    }:
+        tokens = ("screensaver",)
     if tokens == ("cancel",):
         return "cancel", ()
     raw = unicodedata.normalize("NFKC", text).casefold().strip().rstrip(".!?")

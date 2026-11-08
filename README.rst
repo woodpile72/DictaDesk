@@ -16,7 +16,7 @@ libadwaita for Cinnamon. Local transcription is the default.
 · `Report an issue <https://github.com/woodpile72/DictaDesk/issues>`_
 
 .. image:: media/screenshots/preferences-local.png
-   :alt: DictaDesk Preferences with compact usage instructions above the settings
+   :alt: DictaDesk General preferences with shared microphone, startup and transcription settings
    :width: 880
 
 Screenshots show the actual DictaDesk 1.2.0 interface in an isolated demonstration
@@ -41,6 +41,14 @@ The package includes its Python runtime dependencies; models download separately
 It requires Python 3.12, GTK 4.14+ and libadwaita 1.5+. It uses the CPU and does
 not require an NVIDIA card. Quit the app before future upgrades.
 
+Preferences
+-----------
+
+Preferences opens on **General** for the shared microphone, microphone test,
+transcription backend, models, credentials, startup and tray appearance.
+**Dictation** contains keyboard shortcuts, recording timing, insertion, formatting
+and vocabulary. Help is available from the tray and the relevant settings pages.
+
 Start dictating
 ---------------
 
@@ -57,7 +65,7 @@ Short pauses show text without finalizing the sentence ending. By default,
 DictaDesk waits 4 seconds of silence to finalize it; stopping also finalizes it.
 Silence-based auto-stop applies only to the ordinary dictation shortcut;
 continuous mode continues until stopped.
-All three timings are adjustable under **Preferences → Dictation Timing**.
+All three timings are adjustable under **Preferences → Dictation → Dictation Timing**.
 Lower **Sentence Ending Pause** for shorter gaps between sentences, or raise it
 to allow longer thinking pauses. **Stop After Silence** accepts 1–600 seconds;
 set it to **0 (Off)** to keep recording through quiet gaps. The separate
@@ -67,7 +75,7 @@ within a phrase. A few trailing words stay provisional so recognition can revise
 them when you continue. Text already inserted into another application is never
 automatically overwritten.
 
-Shortcuts are configurable in Preferences, which also shows the actual recording
+Shortcuts are configurable in Preferences → Dictation, which also shows the actual recording
 shortcut in its usage instructions. Click the tray icon for Preferences, or choose
 **Quit** from its context menu to exit. Closing Preferences returns to the tray.
 Optional **Start at Login** starts in the tray too. The microphone and
@@ -110,7 +118,7 @@ can increase API usage. It is never an automatic fallback
 when local recognition fails.
 
 .. image:: media/screenshots/preferences-local.png
-   :alt: Local Preferences with model selection, model guide, CPU and precision controls
+   :alt: General preferences for shared input and transcription settings
    :width: 880
 
 What it does
