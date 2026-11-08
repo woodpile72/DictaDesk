@@ -33,6 +33,10 @@ class Preferences:
     hands_free: bool = False
     wake_phrase: str = "Clanker"
     command_sound: bool = True
+    tts_enabled: bool = False
+    tts_engine: str = "piper"
+    tts_model: str = "en_US-lessac-medium"
+    tts_phrase: str = "Hello"
     volume_step: int = 5
     brightness_step: int = 5
     local_model: str = "parakeet"
@@ -64,6 +68,21 @@ class Preferences:
     def validate(self):
         if self.backend not in ("local", "openai"):
             raise ValueError("Choose a supported backend.")
+        from .tts import ENGINES, VOICES
+
+        if (
+            self.tts_engine not in ENGINES
+            or self.tts_model not in VOICES
+            or VOICES[self.tts_model].engine != self.tts_engine
+        ):
+            raise ValueError("Choose a supported speech engine and matching voice.")
+        if (
+            not isinstance(self.tts_phrase, str)
+            or not self.tts_phrase.strip()
+            or len(self.tts_phrase) > 120
+            or not self.tts_phrase.isprintable()
+        ):
+            raise ValueError("Enter a spoken acknowledgment of 1–120 printable characters.")
         from .voice_commands import words
 
         if (
@@ -110,6 +129,7 @@ class Preferences:
         for name in (
             "hands_free",
             "command_sound",
+            "tts_enabled",
             "auto_paste",
             "symbolic",
             "autostart",

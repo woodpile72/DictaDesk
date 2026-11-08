@@ -10,6 +10,7 @@ from pathlib import Path
 from .. import APP_ID, __version__
 from ..core.credentials import save_key
 from ..core.session import Session
+from ..audio.speech import SpeechOutput
 from ..core.transcript import has_content
 from ..core.handsfree import HandsFree
 from ..core.application_roles import application_role
@@ -62,6 +63,8 @@ class Application(Adw.Application):
         self.last_tray = None
         self.pending_start = None
         self.handsfree = None
+        self.speech = None
+        self.speech_view = None
         self.screen_lock = None
         self.voice_toggle_target = None
         self.command_chooser = None
@@ -82,10 +85,13 @@ class Application(Adw.Application):
             "load": lambda: self.session.load(),
             "repair": self.repair_model,
             "preferences": self.show_preferences,
+            "talkback-preferences": lambda: self.show_preferences("tts"),
             "hands-free": self.toggle_hands_free,
             "pause-commands": self.toggle_voice_pause,
             "about": self.show_about,
             "usage": self.show_usage,
+            "command-help": lambda: self.show_usage("commands"),
+            "tts-help": lambda: self.show_usage("tts"),
             "quit": self.request_quit,
             "recover": self.recover,
         }
@@ -115,6 +121,9 @@ class Application(Adw.Application):
         if self.session is not None:
             return
         self.session = self.session_factory(self.dispatch, self.refresh, self.deliver)
+        self.speech = SpeechOutput(self.dispatch, self.refresh)
+        self.session.before_operation = self.speech.stop_playback
+        self.session.wait_for_output = self.speech.wait_playback
         self.handsfree = HandsFree(
             self.session,
             self.refresh,
@@ -122,6 +131,8 @@ class Application(Adw.Application):
             self.command_feedback,
             desktop_action=self.run_desktop_command,
             capture_destination=self.capture_command_destination,
+            speech_acknowledge=self.speech.acknowledge,
+            output_busy=lambda: self.speech.previewing,
         )
         self.session.handsfree = self.handsfree
         self.session.stream_delivered = self.deliver_segment
@@ -197,6 +208,7 @@ class Application(Adw.Application):
         label = {
             "app.preferences": "Preferences",
             "app.show": "Preferences",
+            "app.talkback-preferences": "Talk Back",
         }[action]
         notification.add_button(label, action)
         try:
@@ -267,13 +279,22 @@ class Application(Adw.Application):
                 "Settings need recovery",
                 "Open Preferences to back up and reset them.",
             ),
+            "talkback": (
+                self.speech.problem if self.speech else "",
+                "Talk Back unavailable",
+                "Check the Talk Back tab in Preferences. Dictation remains available.",
+            ),
         }
         for kind, (reason, title, body) in problems.items():
             if reason and reason != self.environment_problems.get(kind):
                 self.notify_issue(
                     title,
                     body,
-                    "app.show" if kind == "settings" else "app.preferences",
+                    "app.show"
+                    if kind == "settings"
+                    else "app.talkback-preferences"
+                    if kind == "talkback"
+                    else "app.preferences",
                     "setup-" + kind,
                 )
             self.environment_problems[kind] = reason
@@ -466,6 +487,20 @@ class Application(Adw.Application):
                     self.session.finish_recording()
                 self.refresh()
         self.session.tick()
+        self.speech.tick(self.session.preferences, busy=self.session.busy)
+        speech_view = (
+            self.speech.downloading,
+            self.speech.removing,
+            self.speech.previewing,
+            self.speech.preparing,
+            self.speech.speaking,
+            self.speech.problem,
+            self.speech.notice,
+            self.speech.progress[0] // (1024 * 1024),
+        )
+        if speech_view != self.speech_view:
+            self.speech_view = speech_view
+            self.refresh()
         self.resume_pending_start()
         if self.voice_toggle_target is not None and not self.session.busy:
             target, self.voice_toggle_target = self.voice_toggle_target, None
@@ -983,17 +1018,17 @@ class Application(Adw.Application):
         host.present()
         dialog.present(host)
 
-    def show_usage(self):
+    def show_usage(self, page="dictation"):
         if self.usage_window is None:
             self.usage_window = UsageWindow(self)
-        self.usage_window.present()
+        self.usage_window.present(page)
 
-    def show_preferences(self):
+    def show_preferences(self, page="dictation"):
         if self.session.busy:
             return
         if self.preferences_dialog is None:
             self.preferences_dialog = PreferencesDialog(self)
-        self.preferences_dialog.present()
+        self.preferences_dialog.present(page)
 
     def save_preferences(self, prefs, key, close):
         def prepare():
@@ -1041,12 +1076,23 @@ class Application(Adw.Application):
         self.present_dialog(dialog)
 
     def remove_models(self, model=None):
+        def remove():
+            if model is None and (self.speech.downloading or self.speech.removing):
+                self.notify_issue(
+                    "Downloads are busy",
+                    "Wait for the Talk Back download or removal to finish, or cancel its download in Preferences, before removing all downloads.",
+                    "app.talkback-preferences",
+                    "storage",
+                )
+                return
+            self.session.remove_models(model)
+
         dialog = Adw.AlertDialog(
             heading="Remove Downloaded Models?",
             body=(
                 f"Remove all {LOCAL_MODELS[model]['name']} downloads and backups? Other models and preferences will remain."
                 if model
-                else "Remove all local model downloads and backups for your account. Your preferences will remain. You can download a model again later."
+                else "Remove all downloaded dictation models and optional Talk Back engines/voices for your account. Your preferences will remain. You can download them again later."
             ),
         )
         dialog.add_response("cancel", "Cancel")
@@ -1054,9 +1100,7 @@ class Application(Adw.Application):
         dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.connect(
             "response",
-            lambda _, response: (
-                self.session.remove_models(model) if response == "remove" else None
-            ),
+            lambda _, response: remove() if response == "remove" else None,
         )
         self.present_dialog(dialog)
 
@@ -1107,6 +1151,7 @@ class Application(Adw.Application):
         if self.shutting_down:
             return
         self.shutting_down = True
+        self.speech.stop_playback()
         self.desktop_commands.close()
         if self.screen_lock:
             self.screen_lock.close()
@@ -1128,7 +1173,7 @@ class Application(Adw.Application):
             self.release()
             self.quit()
 
-        self.session.close(done)
+        self.session.close(lambda: self.speech.close(done))
 
 
 def main():

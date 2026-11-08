@@ -20,6 +20,7 @@ from ..core.connection import test_connection
 from ..desktop.keyboard import Chord
 from .gtk import Adw, Gdk, Gtk
 from .widgets import text
+from .speech_preferences import SpeechPreferences
 
 
 class PreferencesDialog:
@@ -50,8 +51,22 @@ class PreferencesDialog:
         self.save.add_css_class("suggested-action")
         self.save.connect("clicked", self.save_clicked)
         header.pack_end(self.save)
-        page = Adw.PreferencesPage()
-        toolbar.set_content(page)
+        self.stack = Adw.ViewStack()
+        self.pages = {}
+        for name, title, icon in (
+            ("dictation", "Dictation", "audio-input-microphone-symbolic"),
+            ("commands", "Command & Control", "preferences-system-symbolic"),
+            ("tts", "Talk Back", "audio-speakers-symbolic"),
+        ):
+            panel = Adw.PreferencesPage()
+            self.pages[name] = panel
+            self.stack.add_titled_with_icon(panel, name, title, icon)
+        switcher = Adw.ViewSwitcher()
+        switcher.set_stack(self.stack)
+        switcher.set_policy(Adw.ViewSwitcherPolicy.NARROW)
+        toolbar.add_top_bar(switcher)
+        toolbar.set_content(self.stack)
+        page = self.pages["dictation"]
         self.values = asdict(app.session.preferences)
         self.secret = None
         self.closed_flag = False
@@ -83,9 +98,7 @@ class PreferencesDialog:
         self.usage.set_margin_bottom(4)
         usage.add(self.usage)
         usage.add(
-            Gtk.Button(
-                label="Usage & Commands…", action_name="app.usage", halign=Gtk.Align.START
-            )
+            Gtk.Button(label="Dictation Help…", action_name="app.usage", halign=Gtk.Align.START)
         )
         page.add(usage)
         self.update_usage()
@@ -273,6 +286,12 @@ class PreferencesDialog:
             if key != "silence_threshold":
                 timing.add(row)
             self.controls[key] = row
+        self.commands_requirement = Adw.PreferencesGroup(
+            title="Local transcription required",
+            visible=False,
+            description="Command &amp; Control uses the local speech-recognition model. Choose Local on the Dictation tab to enable it.",
+        )
+        self.pages["commands"].add(self.commands_requirement)
         self.voice_banner_group = Adw.PreferencesGroup()
         self.voice_banner = Gtk.Label(label="Experimental", wrap=True, hexpand=True)
         self.voice_banner.add_css_class("voice-experimental")
@@ -285,12 +304,12 @@ class PreferencesDialog:
             self.voice_banner_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
         self.voice_banner_group.add(self.voice_banner)
-        page.add(self.voice_banner_group)
+        self.pages["commands"].add(self.voice_banner_group)
         self.voice_group = Adw.PreferencesGroup(
             title="Command &amp; Control",
-            description="Keeps the microphone listening locally. Say the configured wake phrase, wait for the acknowledgment, then speak a supported command. Usage &amp; Commands lists the available controls. Dictation takes priority.",
+            description="Keeps the microphone listening locally. Say the wake phrase and command together, or say the wake phrase, wait for the acknowledgment, then speak a supported command. Open Command &amp; Control Help for the available controls. Dictation takes priority.",
         )
-        page.add(self.voice_group)
+        self.pages["commands"].add(self.voice_group)
         hands_free = Adw.SwitchRow(
             title="Enable hands-free commands", active=self.values["hands_free"]
         )
@@ -306,6 +325,13 @@ class PreferencesDialog:
         self.controls["command_sound"] = sound
         self.voice_status = Adw.ActionRow(title="Local listening", use_markup=False)
         self.voice_group.add(self.voice_status)
+        self.voice_group.add(
+            Gtk.Button(
+                label="Command & Control Help…",
+                action_name="app.command-help",
+                halign=Gtk.Align.START,
+            )
+        )
         self.spin(self.voice_group, "volume_step", "Default Volume Adjustment (%)", 1, 100)
         self.spin(
             self.voice_group, "brightness_step", "Default Brightness Adjustment (%)", 1, 100
@@ -390,7 +416,7 @@ class PreferencesDialog:
             (
                 "spoken_punctuation",
                 "Spoken Punctuation",
-                "English commands such as period, dot dot dot, new paragraph and open parenthesis. Supports brackets and braces too. Literal command words also convert; Undo Transcript Changes restores the original.",
+                "English commands such as period, dot dot dot, new paragraph and open parenthesis. Supports brackets and braces too. Literal command words also convert; disable this setting to keep those words literal.",
             ),
             (
                 "auto_paste",
@@ -409,7 +435,7 @@ class PreferencesDialog:
             self.controls[key] = row
         self.vocabulary = Adw.PreferencesGroup(
             title="Personal Vocabulary",
-            description="Whole words and phrases; corrections are reversible on the last transcript.",
+            description="Whole words and phrases; corrections are applied before insertion.",
         )
         page.add(self.vocabulary)
         self.rules = [list(pair) for pair in self.values["vocabulary"]]
@@ -430,6 +456,9 @@ class PreferencesDialog:
         self.message.add_css_class("error")
         self.vocabulary.add(self.message)
         self.render_rules()
+        # Stable dictation opens first; experiments have their own tabs.
+        self.speech_settings = SpeechPreferences(app)
+        self.pages["tts"].add(self.speech_settings.group)
         self.backend_visibility()
         self.dialog.connect("close-request", self.closed)
         keys = Gtk.EventControllerKey()
@@ -570,6 +599,7 @@ class PreferencesDialog:
         cached = downloaded(precision, model)
         self.voice_banner_group.set_visible(local)
         self.voice_group.set_visible(local)
+        self.commands_requirement.set_visible(not local)
         self.controls["hands_free"].set_sensitive(
             local and (cached or self.controls["hands_free"].get_active())
         )
@@ -881,6 +911,7 @@ class PreferencesDialog:
             data["microphone"], data["host_api"] = self.device_values[self.input.get_selected()]
             data["language"] = self.language.get_text().strip()
             data["wake_phrase"] = self.wake_phrase.get_text().strip()
+            data.update(self.speech_settings.values())
             if (
                 data["backend"] == "local"
                 and data["hands_free"]
@@ -908,6 +939,7 @@ class PreferencesDialog:
             self.refresh()
 
     def refresh(self):
+        self.speech_settings.refresh()
         if tuple(self.app.session.devices) != self.device_snapshot:
             self.populate_devices()
         busy = self.app.session.busy
@@ -964,15 +996,17 @@ class PreferencesDialog:
 
     def closed(self, *_):
         self.closed_flag = True
+        self.app.speech.preview_cancel.set()
         self.compute_cancel.set()
         self.api_key.set_text("")
         self.app.preferences_dialog = None
         self.app.bind_shortcuts()
 
-    def present(self):
+    def present(self, page="dictation"):
         if self.app.keyboard:
             self.app.keyboard.clear()
         self.refresh()
+        self.stack.set_visible_child_name(page if page in self.pages else "dictation")
         self.dialog.present()
         self.app.dispatch(self.offer_model_download)
 

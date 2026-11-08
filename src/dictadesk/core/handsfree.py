@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timedelta
 
 from ..audio.handsfree import MemoryInput, acknowledge, utterance
-from .voice_commands import wake_match_kind, command, choice_number
+from .voice_commands import wake_activation, command, choice_number
 from .diagnostics import event, failure
 
 
@@ -24,10 +24,13 @@ class HandsFree:
         capture_destination=None,
         source=MemoryInput,
         beep=acknowledge,
+        speech_acknowledge=None,
+        output_busy=lambda: False,
     ):
         self.session = session
         self.changed, self.launch, self.feedback = changed, launch, feedback
         self.source, self.beep = source, beep
+        self.speech_acknowledge, self.output_busy = speech_acknowledge, output_busy
         self.desktop_action = desktop_action
         self.capture_destination = capture_destination
         self.activation_target = None
@@ -81,6 +84,7 @@ class HandsFree:
             and not self.stop.is_set()
             and not self.session.busy
             and not self.session.closing
+            and not self.output_busy()
         )
 
     def suspend(self):
@@ -199,7 +203,7 @@ class HandsFree:
             self.state = "paused"
             self.problem = self.session.desktop_reason
             return
-        if not self.enabled or self.session.busy or self.session.closing:
+        if not self.enabled or self.session.busy or self.session.closing or self.output_busy():
             if not self.stop.is_set():
                 self.suspend()
             return
@@ -273,6 +277,7 @@ class HandsFree:
                         deadline=float("inf"),
                         require_quiet=True,
                         max_seconds=6,
+                        require_complete=True,
                     )
                 # Close capture before inference. Disable/dictation never waits
                 # for a model result to release the microphone.
@@ -282,7 +287,7 @@ class HandsFree:
                 text = self.recognize(data, generation, stop)
                 if not self.valid(generation):
                     return
-                match_kind = wake_match_kind(text, prefs.wake_phrase)
+                match_kind, inline = wake_activation(text, prefs.wake_phrase)
                 event(
                     "handsfree.wake_result",
                     generation=generation,
@@ -314,23 +319,35 @@ class HandsFree:
                     if not self.valid(generation):
                         return
                 self.publish(generation, "command")
-                if prefs.command_sound:
-                    try:
-                        self.beep(stop)
-                    except Exception:
-                        pass  # Missing sound output must not disable voice commands.
-                if stop.wait(0.4):
-                    return
-                deadline = time.monotonic() + 8
-                with self.source(prefs) as source:
-                    data = utterance(
-                        source,
-                        stop,
-                        threshold=prefs.silence_threshold,
-                        deadline=deadline,
-                        require_quiet=True,
-                    )
-                text = self.recognize(data, generation, stop)
+                if inline:
+                    text = inline
+                else:
+                    spoken = False
+                    if prefs.tts_enabled and self.speech_acknowledge:
+                        try:
+                            spoken = self.speech_acknowledge(prefs, stop)
+                        except InterruptedError:
+                            return
+                        except Exception as exc:
+                            failure("handsfree.speech_ack_failed", exc)
+                    if not spoken and prefs.command_sound:
+                        try:
+                            self.beep(stop)
+                        except Exception:
+                            pass  # Missing output must not disable voice commands.
+                    if stop.wait(0.4):
+                        return
+                    deadline = time.monotonic() + 8
+                    with self.source(prefs) as source:
+                        data = utterance(
+                            source,
+                            stop,
+                            threshold=prefs.silence_threshold,
+                            deadline=deadline,
+                            require_quiet=True,
+                            require_complete=True,
+                        )
+                    text = self.recognize(data, generation, stop)
                 if not self.valid(generation):
                     return
                 kind, query = command(text, prefs)

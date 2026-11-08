@@ -59,6 +59,8 @@ class Session:
         self.pause_dictation = False
         self.clipboard_fallback = lambda value: self.delivered(value, None)
         self.stream_delivered = lambda value, target, done: done(False)
+        self.before_operation = lambda: None
+        self.wait_for_output = lambda cancel: None
 
     @property
     def busy(self):
@@ -185,6 +187,10 @@ class Session:
             return None
         if self.busy or self.closing or self.store.problem:
             return None
+        try:
+            self.before_operation()
+        except Exception as exc:
+            failure("session.optional_output_stop_failed", exc)
         if self.handsfree:
             self.handsfree.suspend()
         self.operation += 1
@@ -207,6 +213,7 @@ class Session:
             try:
                 if self.handsfree:
                     self.handsfree.join()
+                self.wait_for_output(cancel)
                 if cancel.is_set():
                     raise InterruptedError()
                 if (

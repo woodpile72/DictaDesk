@@ -104,7 +104,16 @@ class MemoryInput:
             )
 
 
-def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_seconds=8):
+def utterance(
+    source,
+    stop,
+    *,
+    threshold,
+    deadline,
+    require_quiet=False,
+    max_seconds=8,
+    require_complete=False,
+):
     """Consume one utterance, requiring fresh speech after any boundary reset."""
     audio = bytearray()
     # Keep quiet context and weak consonants before the threshold crossing.
@@ -116,6 +125,7 @@ def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_sec
     voiced = quiet = 0
     armed = not require_quiet
     started = time.monotonic()
+    complete = False
     while not stop.is_set():
         block = source.read(stop, deadline)
         if block is None:
@@ -141,9 +151,16 @@ def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_sec
         else:
             preceding.extend(block)
             del preceding[: -PRE_ROLL_SAMPLES * 2]
-        if quiet >= 5 or len(audio) >= audio_limit:
+        if quiet >= 5:
+            complete = True
             break
-    result = bytes(audio[:audio_limit]) if not stop.is_set() and voiced >= 2 else b""
+        if len(audio) >= audio_limit:
+            break
+    result = (
+        bytes(audio[:audio_limit])
+        if not stop.is_set() and voiced >= 2 and (complete or not require_complete)
+        else b""
+    )
     event(
         "handsfree.utterance",
         samples=len(result) // 2,
@@ -151,6 +168,7 @@ def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_sec
         preroll_samples=PRE_ROLL_SAMPLES if result else 0,
         elapsed=round(time.monotonic() - started, 3),
         cancelled=stop.is_set(),
+        complete=complete,
     )
     return result
 

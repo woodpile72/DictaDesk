@@ -91,6 +91,19 @@ def cache_info(now=None):
                 result["bytes"] += info.st_blocks * 512
                 seen.add(identity)
     dates = []
+    speech_marker = root / "tts" / "last-used"
+    if (
+        speech_marker.is_file()
+        and not speech_marker.is_symlink()
+        and not speech_marker.parent.is_symlink()
+    ):
+        try:
+            recorded = float(speech_marker.read_text())
+            if not 0 < recorded <= now:
+                return result
+            dates.append(recorded)
+        except (OSError, ValueError):
+            return result
     for model, precision in (
         (model, precision)
         for model in LOCAL_MODELS

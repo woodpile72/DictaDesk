@@ -101,7 +101,7 @@ def registered():
     def got(conn, result):
         try:
             revision, layout = conn.call_finish(result).unpack()
-            assert layout[0] == 0 and len(layout[2]) == 8, layout
+            assert layout[0] == 0 and len(layout[2]) == 10, layout
             labels = [node[1]["label"] for node in layout[2]]
             assert "Last Transcript…" not in labels and "Quit" in labels
             assert "Copy Uninserted Text" not in labels

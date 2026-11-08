@@ -23,9 +23,9 @@ worker = Recognizer()
 trials = []
 
 
-def run(wake, speech, offset_ms, *, threshold=0.015, gain=1, expected=True):
+def run(wake, speech, offset_ms, *, threshold=0.015, gain=1, expected=True, inline=False):
     clips = []
-    for text in (speech, "Open Firefox.") if expected else (speech,):
+    for text in (speech, "Open Firefox.") if expected and not inline else (speech,):
         pcm = synthesize(text)
         if gain != 1:
             pcm = array("h", (int(value * gain) for value in array("h", pcm))).tobytes()
@@ -65,14 +65,22 @@ def run(wake, speech, offset_ms, *, threshold=0.015, gain=1, expected=True):
         beeps.append(True)
 
     def launch(query, generation, *, heard):
+        assert engine.activation_target is target
         opened.append(query)
         engine.stop.set()
 
+    target = object()
     engine = HandsFree(
-        session, lambda: None, launch, lambda *_args, **_kwargs: None, source=Source, beep=beep
+        session,
+        lambda: None,
+        launch,
+        lambda *_args, **_kwargs: None,
+        source=Source,
+        beep=beep,
+        capture_destination=lambda: target,
     )
     engine.run(0, engine.stop, prefs)
-    matched = opened == [("firefox",)] and len(beeps) == 1
+    matched = opened == [("firefox",)] and len(beeps) == (0 if inline else 1)
     trials.append(
         {
             "wake": wake,
@@ -81,6 +89,7 @@ def run(wake, speech, offset_ms, *, threshold=0.015, gain=1, expected=True):
             "gain": gain,
             "threshold": threshold,
             "expected": expected,
+            "inline": inline,
             "matched": matched,
             "beeps": len(beeps),
             "actions": len(opened),
@@ -109,6 +118,8 @@ try:
     run("Clanker", "Clanker", 50)
     run("Clanker", "Clanker.", 50, gain=0.5)
     run("Clanker", "Clanker.", 50, gain=0.1, threshold=0.003)
+    run("Clanker", "Clanker open Firefox.", 50, inline=True)
+    run("Hello computer", "Hello computer open Firefox.", 150, inline=True)
     for text in ("Thank you.", "Open Firefox.", "What is the weather today?"):
         run("Clanker", text, 50, expected=False)
     print(json.dumps({"generated_audio_only": True, "trials": trials}, indent=2))

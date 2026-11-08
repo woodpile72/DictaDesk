@@ -14,6 +14,7 @@ from dictadesk.core.voice_commands import (
     words,
     wake_matches,
     wake_match_kind,
+    wake_activation,
     command,
     match_applications,
     diagnostic,
@@ -82,6 +83,32 @@ class ParsingTests(unittest.TestCase):
         # Wake tolerance must never change the deterministic command grammar.
         for text in ("Clank", "volum up", "locks screan", "suspent computer"):
             self.assertEqual(command(text)[0], "unknown")
+
+    def test_inline_wake_preserves_command_text_and_numeric_validation(self):
+        for text, phrase, suffix in (
+            ("Clanker, LOCK SCREEN!", "Clanker", "lock screen!"),
+            ("Hello Desk: next track", "Hello Desk", "next track"),
+            (
+                "hey Clanker volume down fifteen percent",
+                "Clanker",
+                "volume down fifteen percent",
+            ),
+            ("Clanker take screenshot", "Clanker", "take screenshot"),
+        ):
+            self.assertEqual(wake_activation(text, phrase), ("exact", suffix))
+        self.assertEqual(wake_activation("Clanker", "Clanker"), ("exact", ""))
+        self.assertEqual(wake_activation("Clank", "Clanker"), ("limited", ""))
+        self.assertEqual(wake_activation("Clank lock screen", "Clanker"), (None, ""))
+        for text in (
+            "Clanker volume -10%",
+            "Clanker volume +10%",
+            "Clanker volume 10.5%",
+            "Clanker lock screen and volume max",
+            "Clanker sudo rm files",
+        ):
+            kind, suffix = wake_activation(text, "Clanker")
+            self.assertEqual(kind, "exact")
+            self.assertEqual(command(suffix)[0], "unknown")
 
     def test_defaults_validation_and_roundtrip(self):
         p = Preferences()
@@ -213,6 +240,35 @@ class AudioTests(unittest.TestCase):
             data = utterance(source, threading.Event(), threshold=0.015, deadline=float("inf"))
             self.assertEqual(data, bytes(PRE_ROLL_SAMPLES * 2) + block * 2 + QUIET * 5)
 
+    def test_truncated_speech_never_becomes_a_complete_command(self):
+        for blocks in ([QUIET] * 3 + [VOICE] * 100, [QUIET] * 3 + [VOICE] * 3):
+            sequence = iter(blocks)
+            source = SimpleNamespace(read=lambda *_: next(sequence, None))
+            self.assertEqual(
+                utterance(
+                    source,
+                    threading.Event(),
+                    threshold=0.015,
+                    deadline=float("inf"),
+                    require_quiet=True,
+                    max_seconds=0.3,
+                    require_complete=True,
+                ),
+                b"",
+            )
+        sequence = iter([QUIET] * 3 + [VOICE] * 3 + [QUIET] * 5)
+        source = SimpleNamespace(read=lambda *_: next(sequence, None))
+        self.assertTrue(
+            utterance(
+                source,
+                threading.Event(),
+                threshold=0.015,
+                deadline=float("inf"),
+                require_quiet=True,
+                require_complete=True,
+            )
+        )
+
     def test_memory_protocol_never_uses_cloud_or_files(self):
         model = Mock()
         model.recognize.return_value = "Hey Mint"
@@ -304,7 +360,7 @@ class CoordinatorTests(unittest.TestCase):
         return active
 
     def test_wake_and_next_utterance_are_separate_and_local(self):
-        active = self.prepare(["Hey Clanker open Firefox", "open Calibre"])
+        active = self.prepare(["Hey Clanker", "open Calibre"])
 
         def launch(query, generation, *, heard):
             self.assertEqual(query, ("calibre",))
@@ -577,6 +633,50 @@ class CoordinatorTests(unittest.TestCase):
                     )
                 self.assertLessEqual(calls[1]["deadline"] - time.monotonic(), 8)
                 self.assertEqual(self.hf.recognitions, 2)
+
+    def test_inline_command_uses_one_utterance_and_never_waits_for_beep_or_tts(self):
+        self.session.preferences.wake_phrase = "Clanker"
+        self.session.preferences.tts_enabled = True
+        self.prepare(["Clanker open Firefox"])
+        self.hf.beep = Mock()
+        self.hf.speech_acknowledge = Mock()
+        self.launch.side_effect = lambda *a, **kw: self.hf.complete(0)
+        with patch("dictadesk.core.handsfree.utterance", return_value=VOICE) as capture:
+            self.hf.run(0, self.hf.stop, self.session.preferences)
+        capture.assert_called_once()
+        self.assertTrue(capture.call_args.kwargs["require_complete"])
+        self.launch.assert_called_once_with(("firefox",), 0, heard="open firefox")
+        self.hf.beep.assert_not_called()
+        self.hf.speech_acknowledge.assert_not_called()
+        self.assertEqual(self.hf.recognitions, 1)
+
+    def test_spoken_acknowledgment_replaces_beep_and_failure_falls_back(self):
+        for answer in (True, False, RuntimeError("optional output failed")):
+            self.setUp()
+            self.session.preferences.tts_enabled = True
+            self.prepare(["Hey Clanker", "open Firefox"])
+            self.hf.beep = Mock()
+            self.hf.speech_acknowledge = Mock()
+            if isinstance(answer, Exception):
+                self.hf.speech_acknowledge.side_effect = answer
+            else:
+                self.hf.speech_acknowledge.return_value = answer
+            self.launch.side_effect = lambda *a, **kw: self.hf.complete(0)
+            with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
+                self.hf.run(0, self.hf.stop, self.session.preferences)
+            self.hf.speech_acknowledge.assert_called_once()
+            self.assertEqual(self.hf.beep.call_count, 0 if answer is True else 1)
+            self.launch.assert_called_once()
+
+    def test_unknown_inline_command_reports_once_without_listening_for_another(self):
+        self.prepare(["Hey Clanker run arbitrary shell"])
+        self.hf.beep = Mock()
+        with patch("dictadesk.core.handsfree.utterance", return_value=VOICE) as capture:
+            self.hf.run(0, self.hf.stop, self.session.preferences)
+        capture.assert_called_once()
+        self.launch.assert_not_called()
+        self.hf.beep.assert_not_called()
+        self.feedback.assert_called_once()
 
     def test_remote_disabled_and_unavailable_models_do_not_capture(self):
         self.hf.source = Mock(side_effect=AssertionError("must not capture"))

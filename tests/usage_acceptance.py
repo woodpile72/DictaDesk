@@ -45,6 +45,7 @@ def start():
 def check():
     help = app.usage_window
     assert help.dialog.get_mapped()
+    assert help.stack.get_visible_child_name() == "dictation"
     if os.environ.get("DICTADESK_CAPTURE_HELP"):
         import subprocess
         from gi.repository import GdkX11
@@ -62,8 +63,15 @@ def check():
     assert "Super+Shift+M" in help.extended.get_text()
     assert "system commands" in help.extended.get_text()
     assert set(help.tables) == set(CATEGORIES)
-    app.show_usage()
+    app.show_usage("commands")
     assert app.usage_window is help
+    assert help.stack.get_visible_child_name() == "commands"
+    assert "One phrase" in help.wake.get_text()
+    app.show_usage("tts")
+    assert app.usage_window is help
+    assert help.stack.get_visible_child_name() == "tts"
+    assert "Hello" in help.tts.get_text()
+    app.show_usage()
     app.show_preferences()
     later(preferences)
 

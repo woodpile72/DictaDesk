@@ -138,7 +138,7 @@ Installed-Size: {size}
 Homepage: https://github.com/woodpile72/DictaDesk
 Description: Desktop Dictation for Linux
  Independent GTK 4 voice dictation with local speech recognition,
- tap-to-start dictation, a status tray, vocabulary and transcript recovery.
+ tap-to-start dictation, a status tray, vocabulary and clipboard fallback.
 """)
     (control / "control").chmod(0o644)
     # Stable timestamps and permissions make a frozen source build repeatable.

@@ -101,7 +101,7 @@ def preferences():
     assert rows.index(p.controls["command_sound"]) < rows.index(p.controls["volume_step"])
     assert rows.index(p.voice_status) < rows.index(p.controls["volume_step"])
     assert rows.index(p.controls["volume_step"]) < rows.index(p.controls["brightness_step"])
-    click(button(p.dialog, "Usage & Commands…"))
+    click(button(p.dialog, "Dictation Help…"))
     later(close_button)
 
 
@@ -112,7 +112,7 @@ def close_button():
 
 
 def reopen_for_escape():
-    click(button(app.preferences_dialog.dialog, "Usage & Commands…"))
+    click(button(app.preferences_dialog.dialog, "Dictation Help…"))
     later(escape)
 
 
@@ -126,7 +126,7 @@ def escape():
 
 
 def reopen_for_title_close():
-    click(button(app.preferences_dialog.dialog, "Usage & Commands…"))
+    click(button(app.preferences_dialog.dialog, "Dictation Help…"))
     later(title_close)
 
 

@@ -2,24 +2,35 @@
 """Bounded wake matching and exact command grammar; suggestions never execute speech."""
 
 from difflib import SequenceMatcher
+import re
+import unicodedata
 from pathlib import Path
 from .commands import words, percentage, recognize  # noqa: F401
 
 
-def wake_match_kind(text, phrase):
-    needle, haystack = words(phrase), words(text)
+def wake_activation(text, phrase):
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    spans = list(re.finditer(r"[^\W_]+", normalized))
+    needle, haystack = words(phrase), tuple(span[0] for span in spans)
     if not needle:
-        return None
-    if any(
-        haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1)
-    ):
-        return "exact"
+        return None, ""
+    for index in range(len(haystack) - len(needle) + 1):
+        if haystack[index : index + len(needle)] == needle:
+            # Keep punctuation/numeric signs in the suffix so command validation
+            # can still reject e.g. a negative percentage or multiple commands.
+            suffix = (
+                normalized[spans[index + len(needle) - 1].end() :]
+                .lstrip()
+                .lstrip(",.:!?")
+                .lstrip()
+            )
+            return "exact", suffix
     # A short, rare wake word can lose an unstressed ending or one interior
     # consonant in ordinary ASR. Allow ONE such token, only when the ENTIRE
     # utterance is the configured phrase. Never search sentences approximately,
     # accept arbitrary prefixes, change an initial sound/vowel, or loosen commands.
     if len(needle) != len(haystack):
-        return None
+        return None, ""
     changes = 0
     vowels = frozenset("aeiouy")
     for expected, heard in zip(needle, haystack):
@@ -35,15 +46,19 @@ def wake_match_kind(text, phrase):
             or not heard.isascii()
             or not heard.isalpha()
         ):
-            return None
+            return None, ""
         if len(expected) >= 7 and expected.endswith("er") and heard == expected[:-2]:
             continue
         if len(expected) != len(heard) or expected[-2:] != heard[-2:]:
-            return None
+            return None, ""
         different = [(a, b) for a, b in zip(expected, heard) if a != b]
         if len(different) != 1 or any(c in vowels for pair in different for c in pair):
-            return None
-    return "limited" if changes else None
+            return None, ""
+    return ("limited" if changes else None), ""
+
+
+def wake_match_kind(text, phrase):
+    return wake_activation(text, phrase)[0]
 
 
 def wake_matches(text, phrase):
