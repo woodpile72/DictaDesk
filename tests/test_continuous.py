@@ -298,7 +298,7 @@ class ContinuousSessionTests(unittest.TestCase):
         self.drain()
         self.assertEqual(self.sent, ["Hello, world", ".", " Next…"])
         self.assertEqual(self.session.result.text, "Hello, world. Next…")
-        self.assertEqual(self.session.pending_text, "")
+        self.assertFalse(hasattr(self.session, "pending_text"))
         self.assertEqual(self.full_deliveries, [])
         self.assertFalse(self.session.continuous)
         self.assertEqual(self.events, ["started", "stopped", "completed"])
@@ -306,7 +306,10 @@ class ContinuousSessionTests(unittest.TestCase):
 
     def test_dictation_does_not_recognize_or_execute_system_commands(self):
         self.worker.replies = iter(["volume max", "lock screen", "suspend computer"])
-        with patch("dictadesk.core.commands.recognize", side_effect=AssertionError("Commands must not run in dictation")):
+        with patch(
+            "dictadesk.core.commands.recognize",
+            side_effect=AssertionError("Commands must not run in dictation"),
+        ):
             self.session.record_continuous(target=object(), pause_mode=True)
             self.drain()
         self.assertIn("lock screen", self.session.result.text.lower())
@@ -317,9 +320,7 @@ class ContinuousSessionTests(unittest.TestCase):
         for pause_mode, expected in ((True, 7), (False, 0)):
             self.worker.replies = iter(["Hello", "world", "again"])
             with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):
-                self.session.record_continuous(
-                    target=object(), pause_mode=pause_mode
-                )
+                self.session.record_continuous(target=object(), pause_mode=pause_mode)
                 self.assertEqual(self.session.capture.silence_stop_seconds, expected)
                 self.drain()
 
@@ -356,31 +357,82 @@ class ContinuousSessionTests(unittest.TestCase):
         self.assertEqual(closed, [True])
         self.assertEqual(self.sent, ["Hello", " there."])
         self.assertEqual(self.session.result.text, "Hello there.")
-        self.assertEqual(self.session.pending_text, "")
+        self.assertFalse(hasattr(self.session, "pending_text"))
         self.assertFalse(self.session.cancelled.is_set())
         self.assertEqual(self.events, ["started", "stopped", "completed"])
 
-    def test_silent_recording_preserves_previous_result_without_copy(self):
+    def test_silent_recording_starts_fresh_without_copy(self):
         self.worker.replies = iter(["", "", ""])
         self.session.result.replace("Previous result", [])
         with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):
             self.session.record_continuous()
             self.drain()
         self.assertEqual(self.full_deliveries, [])
-        self.assertEqual(self.session.result.text, "Previous result")
+        self.assertEqual(self.session.result.text, "")
         self.assertIn("No speech", self.session.notice)
         self.assertNotIn("operation finished", self.session.notice)
         self.assertEqual(self.events, ["started", "stopped", "failed"])
 
-    def test_failed_insertion_is_retained_and_blocks_overwrite(self):
+    def test_failed_insertion_never_blocks_another_recording(self):
         self.session.stream_delivered = lambda value, target, done: done(False)
+        for phrase in ("first result", "second result", "third result"):
+            self.worker.replies = iter([phrase, "", ""])
+            self.session.record_continuous(target=object())
+            self.drain()
+            self.assertEqual(self.session.result.text, phrase)
+            self.assertEqual(self.full_deliveries[-1][0], phrase)
+            self.assertTrue(self.session.can_record)
+            self.assertFalse(hasattr(self.session, "pending_text"))
+        self.assertEqual(len(self.full_deliveries), 3)
+
+    def test_missing_insertion_callback_times_out_and_recovers(self):
+        self.session.stream_delivered = lambda value, target, done: None
+        with patch("dictadesk.core.session.INSERTION_TIMEOUT", 0.02):
+            self.session.record_continuous(target=object())
+            self.drain()
+        self.assertIn("timed out", self.session.notice)
+        self.assertEqual(self.full_deliveries, [("Hello, world", None)])
+        self.assertTrue(self.session.can_record)
+        self.worker.replies = iter(["fresh", "", ""])
+        self.session.stream_delivered = lambda value, target, done: done(True)
         self.session.record_continuous(target=object())
         self.drain()
-        self.assertEqual(self.session.pending_text, "Hello, world. Next…")
-        self.session.record()
-        self.assertIn("uninserted", self.session.notice)
-        self.assertEqual(self.session.result.text, self.session.pending_text)
-        self.assertEqual(self.events, ["started", "stopped", "attention"])
+        self.assertEqual(self.session.result.text, "fresh")
+        self.assertTrue(self.session.can_record)
+
+    def test_cancel_during_missing_callback_never_waits_for_acknowledgment(self):
+        self.session.stream_delivered = lambda value, target, done: self.session.cancel()
+        self.session.record_continuous(target=object())
+        self.drain()
+        self.assertTrue(self.session.can_record)
+        self.assertEqual(self.full_deliveries, [])
+
+    def test_transcription_error_is_followed_by_successful_fresh_session(self):
+        original = self.worker.request
+        for error in (
+            RuntimeError("fixture recognition failure"),
+            TimeoutError("fixture inference timeout"),
+        ):
+            self.worker.request = lambda *a, **kw: (_ for _ in ()).throw(error)
+            self.session.result.replace("stale", [])
+            self.session.record_continuous(target=object())
+            self.drain()
+            self.assertEqual(self.session.result.text, "")
+            self.assertTrue(self.session.can_record)
+        self.worker.request = original
+        self.worker.replies = iter(["fresh dictation", "", ""])
+        self.session.record_continuous(target=object())
+        self.drain()
+        self.assertEqual(self.sent, ["fresh dictation"])
+
+    def test_throwing_delivery_callback_does_not_leave_delivering_state(self):
+        self.session.delivered = lambda *_: (_ for _ in ()).throw(
+            RuntimeError("clipboard unavailable")
+        )
+        self.session.record_continuous()
+        self.drain()
+        self.assertTrue(self.session.can_record)
+        self.assertIn("clipboard unavailable", self.session.notice)
 
     def test_cancel_retains_already_inserted_text_and_stops_next_phrase(self):
         def deliver(value, target, done):
@@ -409,7 +461,7 @@ class ContinuousSessionTests(unittest.TestCase):
         self.session.record_continuous()
         self.drain()
         self.assertEqual(self.sent, [])
-        self.assertEqual(self.session.pending_text, "Hello, world. Next…")
+        self.assertEqual(self.full_deliveries, [("Hello, world. Next…", None)])
 
     def test_later_recognition_failure_preserves_committed_text(self):
         original = self.worker.request

@@ -128,7 +128,6 @@ def discover():
 
 def deliver(value, target, callback):
     c = app.session
-    c.pending_text = ""
     c.phase = "idle"
     c._begin("transcribing")
     c.result.replace(value, [])
@@ -145,7 +144,7 @@ def normal():
 
 def normal_done():
     assert text(original) == "before NORMALselected after", text(original)
-    assert not app.session.pending_text
+    assert not hasattr(app.session, "pending_text")
     original.add_selection(7, 13)
     global target
     target = app.destinations.capture()
@@ -211,10 +210,10 @@ def changed_content():
 
 def recovery():
     assert text(original) == "Page changed"
-    assert app.session.pending_text == "RECOVER ME"
+    assert not app.session.busy
+    assert not hasattr(app.session, "pending_text")
     assert "failed" in app.session.notice
-    app.copy_pending()
-    assert not app.session.pending_text
+    assert not hasattr(app.session, "pending_text")
 
     def read(clipboard, result):
         assert clipboard.read_text_finish(result) == "RECOVER ME"
@@ -236,9 +235,9 @@ def no_editable_ready():
 
 
 def no_editable_done():
-    assert app.session.pending_text == "NO EDITABLE"
+    assert not app.session.busy
+    assert not hasattr(app.session, "pending_text")
     assert text(second) == "Unrelated field"
-    app.copy_pending()
     original.get_component_iface().grab_focus()
     later(removed)
 
@@ -252,9 +251,9 @@ def removed():
 
 
 def removed_done():
-    assert app.session.pending_text == "REMOVED"
+    assert not app.session.busy
+    assert not hasattr(app.session, "pending_text")
     assert not app.destinations.valid(target)
-    app.copy_pending()
     second.get_component_iface().grab_focus()
     later(closed)
 
@@ -270,7 +269,8 @@ def closed():
 
 
 def closed_done():
-    assert app.session.pending_text == "CLOSED"
+    assert not app.session.busy
+    assert not hasattr(app.session, "pending_text")
     assert "CLOSED" not in text(third)
     assert app.session.result.text == "CLOSED"
     print(

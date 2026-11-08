@@ -178,7 +178,6 @@ def cross_application():
 def deliver(value, target, callback):
     c = app.session
     c.phase = "idle"
-    c.pending_text = ""
     c._begin("transcribing")
     c.result.replace(value, [])
     app.deliver(value, target)
@@ -228,7 +227,9 @@ def navigate():
 
 
 def navigated():
-    assert app.session.pending_text == "STALE PAGE", app.session.notice
+    assert not app.session.busy
+    assert not hasattr(app.session, "pending_text")
+    assert "clipboard" in app.session.notice
     assert not app.destinations.valid(target)
     assert app.session.result.text == "STALE PAGE"
     print(

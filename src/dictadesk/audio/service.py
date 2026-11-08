@@ -4,12 +4,15 @@
 import json
 import os
 import queue
+import select
 import signal
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+
+from ..core.diagnostics import WORKER_PREFIX, event, failure
 
 
 class Recognizer:
@@ -38,10 +41,14 @@ class Recognizer:
             self.command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             start_new_session=True,
+            env={**os.environ, "DICTADESK_WORKER_DIAGNOSTICS": "1"},
         )
+        os.set_blocking(process.stdin.fileno(), False)
         replies = queue.Queue()
 
         def collect():
@@ -59,11 +66,57 @@ class Recognizer:
                 process.stdout.close()
 
         threading.Thread(target=collect, daemon=True).start()
+
+        def diagnostics():
+            try:
+                while line := process.stderr.readline(2048):
+                    if line.startswith(WORKER_PREFIX):
+                        try:
+                            value = json.loads(line[len(WORKER_PREFIX) :])
+                            name = value.pop("event")
+                            allowed = {
+                                "operation",
+                                "error_type",
+                                "location",
+                                "samples",
+                                "rate",
+                                "peak",
+                                "rms",
+                                "characters",
+                                "elapsed",
+                                "local_model",
+                                "device",
+                            }
+                            if isinstance(name, str) and name.startswith("worker."):
+                                event(
+                                    name,
+                                    **{
+                                        k: v
+                                        for k, v in value.items()
+                                        if k in allowed
+                                        and isinstance(v, (str, int, float, bool))
+                                    },
+                                )
+                        except (ValueError, TypeError, KeyError):
+                            pass
+            finally:
+                process.stderr.close()
+
+        threading.Thread(target=diagnostics, daemon=True).start()
         self.process, self.replies = process, replies
+        event("worker.spawned", worker_pid=process.pid)
         return process, replies
 
     def request(self, payload, cancelled, timeout=180):
-        with self.serial:
+        started = time.monotonic()
+        deadline = started + timeout
+        # Waiting for a preview or another inference also counts toward timeout.
+        while not self.serial.acquire(timeout=0.05):
+            if cancelled.is_set():
+                raise InterruptedError()
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Speech processing is busy. You can try again.")
+        try:
             if cancelled.is_set():
                 raise InterruptedError()
             with self.guard:
@@ -72,9 +125,21 @@ class Recognizer:
                 else:
                     process, replies = self.process, self.replies
             try:
-                process.stdin.write(json.dumps(payload) + "\n")
-                process.stdin.flush()
-                deadline = time.monotonic() + timeout
+                event("recognition.submitted", operation=payload["op"], timeout=timeout)
+                # PCM requests can exceed the pipe buffer. A worker which stops
+                # reading must not trap cancellation in a blocking write.
+                outgoing = memoryview((json.dumps(payload) + "\n").encode())
+                while outgoing:
+                    if cancelled.is_set():
+                        raise InterruptedError()
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Speech processing timed out. You can try again.")
+                    if not select.select([], [process.stdin], [], 0.05)[1]:
+                        continue
+                    try:
+                        outgoing = outgoing[os.write(process.stdin.fileno(), outgoing) :]
+                    except BlockingIOError:
+                        pass
                 while not cancelled.is_set():
                     if time.monotonic() > deadline:
                         raise TimeoutError("Speech processing timed out. You can try again.")
@@ -88,11 +153,28 @@ class Recognizer:
                         raise RuntimeError(answer["error"])
                     if payload["op"] == "load":
                         self.loaded = True
+                    if "text" in answer and not isinstance(answer["text"], str):
+                        raise RuntimeError("The speech worker returned an invalid transcript.")
+                    event(
+                        "recognition.finished",
+                        operation=payload["op"],
+                        characters=len(answer.get("text", "")),
+                        elapsed=round(time.monotonic() - started, 3),
+                    )
                     return answer
                 raise InterruptedError()
-            except BaseException:
+            except BaseException as exc:
+                failure(
+                    "recognition.failed",
+                    exc,
+                    operation=payload["op"],
+                    elapsed=round(time.monotonic() - started, 3),
+                    worker_exit=process.poll(),
+                )
                 self.close()
                 raise
+        finally:
+            self.serial.release()
 
     def close(self):
         with self.guard:
@@ -115,6 +197,7 @@ class Recognizer:
             pass
         process.wait(timeout=2)
         process.stdin.close()
+        event("worker.closed", worker_pid=process.pid, exit_code=process.returncode)
 
 
 def compute_capabilities(cancelled=None):

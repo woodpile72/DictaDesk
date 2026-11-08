@@ -18,7 +18,12 @@ LEGACY_REMOTE_MODELS = (
 
 
 def directory(kind):
-    defaults = {"CONFIG": ".config", "CACHE": ".cache", "DATA": ".local/share"}
+    defaults = {
+        "CONFIG": ".config",
+        "CACHE": ".cache",
+        "DATA": ".local/share",
+        "STATE": ".local/state",
+    }
     return Path(os.environ.get(f"XDG_{kind}_HOME", Path.home() / defaults[kind])) / "dictadesk"
 
 

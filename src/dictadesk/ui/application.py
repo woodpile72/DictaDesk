@@ -10,9 +10,10 @@ from pathlib import Path
 from .. import APP_ID, __version__
 from ..core.credentials import save_key
 from ..core.session import Session
+from ..core.transcript import has_content
 from ..core.handsfree import HandsFree
 from ..core.voice_commands import diagnostic, exact_application_match, match_applications
-from ..core.settings import private_write
+from ..core.diagnostics import event, failure
 from ..core.models import LOCAL_MODELS
 from ..desktop.delivery import destination, paste
 from ..desktop.accessibility import prepare_accessibility
@@ -25,7 +26,6 @@ from ..desktop.commands import DesktopCommands
 from .gtk import Adw, Gdk, Gio, GLib, Gtk
 from .microphone import MicrophoneDialog
 from .preferences import PreferencesDialog
-from .transcript import TranscriptWindow
 from .usage import UsageWindow
 from .command_chooser import CommandChooser
 
@@ -48,7 +48,6 @@ class Application(Adw.Application):
         self.notifications_enabled = not isolated
         self.session = self.keyboard = self.tray = None
         self.destinations = None
-        self.transcript_window = None
         self.usage_window = None
         self.alert_windows = set()
         self.preferences_dialog = self.microphone_dialog = None
@@ -86,12 +85,6 @@ class Application(Adw.Application):
             "about": self.show_about,
             "usage": self.show_usage,
             "quit": self.request_quit,
-            "transcript": self.show_transcript,
-            "copy": self.copy_result,
-            "copy-pending": self.copy_pending,
-            "undo": self.undo_corrections,
-            "paste-help": self.paste_help,
-            "save-transcript": self.export,
             "recover": self.recover,
         }
         for name, handler in actions.items():
@@ -101,7 +94,6 @@ class Application(Adw.Application):
         self.set_accels_for_action("app.preferences", ["<Control>comma"])
         self.set_accels_for_action("app.quit", ["<Control>q"])
         self.set_accels_for_action("app.escape", ["Escape"])
-        self.set_accels_for_action("app.copy", ["<Control><Shift>c"])
         theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
         theme.add_search_path(str(self.resources))
         Gtk.Window.set_default_icon_name(APP_ID)
@@ -131,6 +123,7 @@ class Application(Adw.Application):
         )
         self.session.handsfree = self.handsfree
         self.session.stream_delivered = self.deliver_segment
+        self.session.clipboard_fallback = self.copy_fallback
         self.session.recording_event = self.notify_recording
         self.hold()
         self.desktop_commands.start()
@@ -141,7 +134,7 @@ class Application(Adw.Application):
             except GLib.Error:
                 pass
             if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-                self.shortcut_problem = "Global shortcuts and automatic paste currently require an X11 session. Transcripts remain available from the tray."
+                self.shortcut_problem = "Global shortcuts and automatic paste currently require an X11 session. Transcripts are copied to the clipboard."
             else:
                 try:
                     self.keyboard = Keyboard(self.key_pressed, self.key_released)
@@ -201,7 +194,6 @@ class Application(Adw.Application):
         notification.set_default_action(action)
         label = {
             "app.preferences": "Preferences",
-            "app.transcript": "Last Transcript",
             "app.show": "Preferences",
         }[action]
         notification.add_button(label, action)
@@ -219,16 +211,25 @@ class Application(Adw.Application):
         _, category, reason = problem
         action = "app.preferences"
         if reason.startswith("No speech"):
-            title, body, action = "No speech detected", "Try again.", "app.show"
+            title, body, action = (
+                "No speech detected",
+                "Captured audio was below the speech threshold. Check Silence Threshold and test your microphone in Preferences."
+                if "Silence Threshold" in reason
+                else "Try again.",
+                "app.show",
+            )
         elif category == "delivery":
-            title, body = "Couldn’t insert text", "Recover it from Last Transcript."
-            action = "app.transcript" if self.session.result.text else "app.preferences"
+            title, body = (
+                "Couldn’t insert text",
+                "Any recognized text was copied to the clipboard. You can record again.",
+            )
         elif category in ("recording", "starting"):
             title = "Dictation stopped"
-            if self.session.pending_text or self.session.result.text:
-                body, action = "Available text is in Last Transcript.", "app.transcript"
-            else:
-                body = "Check the details in Preferences."
+            body = (
+                "Recognized text was copied to the clipboard. You can record again."
+                if self.session.result.text
+                else "Try again. Check Preferences if this continues."
+            )
         else:
             title = {
                 "loading": "Model couldn’t load",
@@ -277,13 +278,7 @@ class Application(Adw.Application):
 
     def explain_blocked_start(self):
         c = self.session
-        if c.pending_text:
-            self.notify_issue(
-                "Uninserted text is waiting",
-                "Recover it before recording again.",
-                "app.transcript",
-            )
-        elif c.store.problem:
+        if c.store.problem:
             self.notify_issue(
                 "Settings need recovery",
                 "Open Preferences to back up and reset them.",
@@ -320,7 +315,7 @@ class Application(Adw.Application):
             "started": "DictaDesk is listening.",
             "stopped": "Finishing transcription…",
             "completed": body or "Your dictation is complete.",
-            "attention": "Some text was not inserted. Recover it from Last Transcript in the tray.",
+            "attention": "Automatic insertion failed. Text was copied to the clipboard. You can record again.",
             "cancelled": "No additional text will be copied or inserted.",
             "failed": body or "Check the details in Preferences.",
         }
@@ -330,19 +325,14 @@ class Application(Adw.Application):
             else:
                 titles[kind], messages[kind] = (
                     "Couldn’t insert text",
-                    "Recover it from Last Transcript.",
+                    "Text was copied to the clipboard. You can record again.",
                 )
         notification = Gio.Notification.new(titles[kind])
         notification.set_body(messages[kind])
         notification.set_icon(Gio.ThemedIcon.new(APP_ID))
-        notification.set_default_action("app.transcript" if kind == "attention" else "app.show")
+        notification.set_default_action("app.show")
         # Replace the current lifecycle notification instead of filling history.
         self.send_notification("recording", notification)
-
-    def show_transcript(self):
-        if self.transcript_window is None:
-            self.transcript_window = TranscriptWindow(self)
-        self.transcript_window.present()
 
     def cancel_operation(self):
         if self.handsfree and not self.session.busy:
@@ -385,11 +375,11 @@ class Application(Adw.Application):
                 c.finish_recording()
             elif not c.busy:
                 self.start_from_shortcut(name)
-        elif name == "paste" and not c.busy and c.result.text:
+        elif name == "paste" and not c.busy and c.last_dictation:
             if c._begin("delivering") is None:
                 return
             target = self.destinations.capture(explicit=True)
-            self.deliver(c.pending_text or c.result.text, target)
+            self.deliver(c.last_dictation, target)
 
     def escape_pressed(self):
         if self.usage_window and self.usage_window.dialog.is_active():
@@ -419,7 +409,7 @@ class Application(Adw.Application):
             if c.phase == "loading":
                 return
             self.pending_start = None
-        if not c.can_record or c.pending_text:
+        if not c.can_record:
             self.explain_blocked_start()
             return
         if name == "continuous":
@@ -523,12 +513,6 @@ class Application(Adw.Application):
             "load": not c.busy and not c.store.problem,
             "repair": not c.busy and not c.store.problem,
             "preferences": not c.busy,
-            "transcript": bool(c.result.text or c.pending_text),
-            "copy": bool(c.result.text) and not c.continuous,
-            "copy-pending": bool(c.pending_text) and not c.busy,
-            "undo": bool(c.result.can_undo) and not c.busy,
-            "paste-help": bool(c.result.text) and not c.busy,
-            "save-transcript": bool(c.result.text) and not c.busy,
             "recover": bool(c.store.damaged) and not c.busy,
         }
         if self.handsfree and self.handsfree.state == "command":
@@ -544,8 +528,6 @@ class Application(Adw.Application):
             self.command_chooser = None
         for name, value in enabled.items():
             self.lookup_action(name).set_enabled(value and available)
-        if self.transcript_window:
-            self.transcript_window.refresh()
         if self.usage_window:
             self.usage_window.refresh()
         self.report_session_problem()
@@ -664,11 +646,8 @@ class Application(Adw.Application):
                 completed("Last dictation copied.")
             else:
                 c = self.session
-                if c.pending_text and c.pending_text != value:
-                    completed("Recover uninserted text before pasting another dictation.")
-                    return
                 # End this activation before beginning the ordinary delivery
-                # operation; existing cancellation and recovery remain in charge.
+                # operation; existing cancellation and target checks remain in charge.
                 self.handsfree.complete(generation)
                 if c._begin("delivering") is not None:
                     self.deliver(value, target or Target(None))
@@ -792,19 +771,12 @@ class Application(Adw.Application):
             render(0)
             dialog.present()
 
-    def copy_result(self):
-        if self.session.result.text:
-            Gdk.Display.get_default().get_clipboard().set(self.session.result.text)
-            self.session.pending_text = ""
-            self.session.notice = "Transcript copied."
-            self.refresh()
-
-    def copy_pending(self):
-        if self.session.pending_text:
-            Gdk.Display.get_default().get_clipboard().set(self.session.pending_text)
-            self.session.pending_text = ""
-            self.session.notice = "Uninserted text copied. Paste it into your document before starting another session."
-            self.refresh()
+    def copy_fallback(self, value):
+        if not has_content(value):
+            return False
+        Gdk.Display.get_default().get_clipboard().set(value)
+        event("delivery.copied", operation=self.session.operation, characters=len(value))
+        return True
 
     def deliver_segment(self, value, target, done):
         """Keep streaming in the original field; defer after any focus change."""
@@ -821,17 +793,17 @@ class Application(Adw.Application):
 
     def deliver(self, value, target):
         c = self.session
-        if c.desktop_locked:
-            c.pending_text = value
+        if not has_content(value):
             c.phase = "idle"
-            return
-        Gdk.Display.get_default().get_clipboard().set(value)
-        if target is None:  # Automatic insertion explicitly disabled in settings.
-            c.pending_text = ""
-            c.phase = "idle"
-            c.notice = "Transcript copied."
             return
         ticket = c.operation
+        if target is None:  # Automatic insertion explicitly disabled in settings.
+            try:
+                self.copy_fallback(value)
+                c.notice = "Transcript copied."
+            finally:
+                c.phase = "idle"
+            return
         c.phase = "delivering"
         c.notice = "Returning to the original dictation field…"
         self.refresh()
@@ -840,22 +812,39 @@ class Application(Adw.Application):
             if ticket != c.operation or self.shutting_down:
                 return
             c.phase = "idle"
-            if inserted:
-                c.pending_text = ""
-                c.notice = "Transcript pasted."
-                c._recording_event(
-                    ticket, "completed", "Your text was inserted into the original field."
-                )
-            else:
-                c.pending_text = value
-                c.notice = "Automatic insertion failed. Text is on the clipboard and in Last Transcript; use Copy Uninserted Text or Paste Again in the intended field."
+            event("delivery.finished", operation=ticket, inserted=bool(inserted))
+            try:
                 if c.cancelled.is_set():
                     c._recording_event(ticket, "cancelled")
+                elif inserted:
+                    c.notice = "Transcript pasted."
+                    c._recording_event(
+                        ticket, "completed", "Your text was inserted into the original field."
+                    )
                 else:
+                    # If earlier streamed words were inserted before the origin
+                    # disappeared, keep the entire current transcript available.
+                    fallback = c.result.text if c._dictation_operation == ticket else value
+                    self.copy_fallback(fallback)
+                    c.notice = "Automatic insertion failed. Text was copied to the clipboard. You can record again."
                     self.delivery_attention()
-            self.refresh()
+            except Exception as exc:
+                failure("delivery.failed", exc, operation=ticket)
+                c.set_problem(
+                    "delivery",
+                    "Could not insert or copy text. Check clipboard availability and try again.",
+                )
+            finally:
+                c.phase = "idle"
+                if self.handsfree:
+                    self.handsfree.resume_at = time.monotonic() + 1
+                self.refresh()
 
-        self.insert(value, target, completed, restore=True)
+        try:
+            self.insert(value, target, completed, restore=True)
+        except Exception as exc:
+            failure("delivery.start_failed", exc, operation=ticket)
+            completed(False)
 
     def insert(self, value, target, done, *, restore):
         """Asynchronous focus/clipboard sequencing, bound to one operation ticket."""
@@ -873,6 +862,12 @@ class Application(Adw.Application):
             finished = True
             if not sent and target:
                 target.deferred = True
+            event(
+                "delivery.insertion",
+                operation=generation,
+                inserted=bool(sent),
+                elapsed=round(time.monotonic() - started, 3),
+            )
             done(sent)
 
         def attempt():
@@ -959,35 +954,14 @@ class Application(Adw.Application):
         else:
             self.notify_issue(
                 "Text wasn’t inserted",
-                "Recover it from Last Transcript.",
-                "app.transcript",
+                "Text was copied to the clipboard. You can record again.",
+                "app.show",
                 "delivery",
             )
-
-    def undo_corrections(self):
-        c = self.session
-        if c.result.can_undo:
-            c.result.undo = not c.result.undo
-            c.notice = (
-                "Transcript changes undone. The original wording is restored here; previously pasted text is unchanged."
-                if c.result.undo
-                else "Transcript changes restored."
-            )
-            self.refresh()
-
-    def paste_help(self):
-        from ..desktop.keyboard import Chord
-
-        self.alert(
-            "Choose Where to Paste",
-            f"Close this message, click the intended text field, then press {Chord.parse(self.session.preferences.paste_shortcut)}. This pastes uninserted text when available; otherwise it pastes the full last transcript. The app checks that the destination stays focused before sending Paste.",
-        )
 
     def dialog_parent(self):
         if self.preferences_dialog and self.preferences_dialog.dialog.get_visible():
             return self.preferences_dialog.dialog
-        if self.transcript_window and self.transcript_window.dialog.get_visible():
-            return self.transcript_window.dialog
         return None
 
     def alert(self, heading, body, parent=None):
@@ -1080,9 +1054,9 @@ class Application(Adw.Application):
         dialog = Adw.AlertDialog(
             heading="Remove Downloaded Models?",
             body=(
-                f"Remove all {LOCAL_MODELS[model]['name']} downloads and backups? Other models, preferences and transcripts will remain."
+                f"Remove all {LOCAL_MODELS[model]['name']} downloads and backups? Other models and preferences will remain."
                 if model
-                else "Remove all local model downloads and backups for your account. Your preferences and last transcript will remain. You can download a model again later."
+                else "Remove all local model downloads and backups for your account. Your preferences will remain. You can download a model again later."
             ),
         )
         dialog.add_response("cancel", "Cancel")
@@ -1124,27 +1098,6 @@ class Application(Adw.Application):
         except Exception as exc:
             self.session.set_problem("saving", str(exc))
         self.refresh()
-
-    def export(self):
-        value = self.session.result.text
-        dialog = Gtk.FileDialog(title="Save Transcript", initial_name="transcript.txt")
-
-        def chosen(file_dialog, result):
-            try:
-                file = file_dialog.save_finish(result)
-                path = file.get_path()
-                if not path:
-                    raise ValueError("Choose a local file for this private transcript.")
-                private_write(path, (value + "\n").encode())
-                self.session.notice = "Transcript saved."
-                self.refresh()
-            except GLib.Error as exc:
-                if exc.code != Gtk.DialogError.DISMISSED:
-                    self.alert("Transcript Not Saved", str(exc))
-            except Exception as exc:
-                self.alert("Transcript Not Saved", str(exc))
-
-        dialog.save(self.dialog_parent(), None, chosen)
 
     def show_about(self):
         dialog = Adw.AboutWindow(
@@ -1190,6 +1143,11 @@ class Application(Adw.Application):
 
 def main():
     os.umask(0o077)
+    event(
+        "application.started",
+        version=__version__,
+        session_type=os.environ.get("XDG_SESSION_TYPE", "unknown"),
+    )
     accessibility_problem = prepare_accessibility()
     app = Application()
     app.accessibility_problem = accessibility_problem

@@ -24,7 +24,11 @@ parser.add_argument(
     "--model", choices=["parakeet", "whisper-base", "whisper-tiny", "moonshine-tiny"]
 )
 parser.add_argument("--live", action="store_true")
-parser.add_argument("--delivery-only", action="store_true", help="Check delivery independently of recognition accuracy; report text for review.")
+parser.add_argument(
+    "--delivery-only",
+    action="store_true",
+    help="Check delivery independently of recognition accuracy; report text for review.",
+)
 args = parser.parse_args()
 model_id = args.model or ("whisper-base" if args.whisper else "parakeet")
 cache = {
@@ -103,7 +107,6 @@ try:
         patch.dict("os.environ", {"XDG_CACHE_HOME": scratch}),
         patch("sounddevice.RawInputStream", GeneratedInput),
     ):
-
         session = Session(
             callbacks.put,
             lambda: None,
@@ -146,7 +149,7 @@ try:
             assert session.result.text.lower().count("message") == 2, session.result.text
         else:
             assert session.result.text.strip()
-        assert not session.pending_text
+        assert not hasattr(session, "pending_text")
         assert len(sent) >= 2
         assert not list(Path(scratch).rglob("*.wav"))
         print(
@@ -154,7 +157,9 @@ try:
         )
         print(session.result.text)
         if args.delivery_only:
-            print("Recognition accuracy was not an acceptance condition for this delivery-only run.")
+            print(
+                "Recognition accuracy was not an acceptance condition for this delivery-only run."
+            )
 finally:
     if session and session.capture:
         session.capture.cancel.set()

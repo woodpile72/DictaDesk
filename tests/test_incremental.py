@@ -208,9 +208,9 @@ class IncrementalSessionTests(unittest.TestCase):
         self.assertEqual(c.result.text, "".join(sent))
         self.assertIn("One two three four five", previews)
         self.assertIn("four five six", previews)
-        self.assertFalse(c.pending_text)
+        self.assertFalse(hasattr(c, "pending_text"))
 
-    def test_focus_loss_retains_only_uninserted_text_for_recovery(self):
+    def test_focus_loss_does_not_create_blocking_recovery_state(self):
         c, sent, _ = self.run_session(
             [
                 "One two three four five",
@@ -220,7 +220,8 @@ class IncrementalSessionTests(unittest.TestCase):
             deliver=False,
         )
         self.assertEqual(sent, [])
-        self.assertEqual(c.pending_text, "One two three four five six.")
+        self.assertEqual(c.result.text, "One two three four five six.")
+        self.assertTrue(c.can_record)
 
     def test_committed_revision_stops_insertion_and_retains_review_text(self):
         c, sent, _ = self.run_session(
@@ -228,8 +229,8 @@ class IncrementalSessionTests(unittest.TestCase):
         )
         self.assertEqual(sent, ["The cat sat"])
         self.assertEqual(c.result.text, "The dog sat on the mat.")
-        self.assertIn("Review Last Transcript", c.notice)
-        self.assertFalse(c.pending_text)
+        self.assertIn("copied to the clipboard", c.notice)
+        self.assertFalse(hasattr(c, "pending_text"))
 
     def test_cancel_keeps_inserted_prefix_without_final_suffix(self):
         c, sent, _ = self.run_session(

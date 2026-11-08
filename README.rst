@@ -78,9 +78,18 @@ recording starts, including its caret or selection. If you change focus, further
 text waits until you finish; DictaDesk then restores the original field, inserts
 the remaining text and tries to return you to the application you were using.
 If the original field disappears, its contents change, or it cannot be verified,
-text is retained in **Last Transcript** and on the clipboard. Use **Copy Uninserted
-Text** in the tray, or click the intended field and use the configured **Paste Last
-Transcript** shortcut. No text is automatically sent to the newly focused field.
+text is copied to the clipboard with a brief notification. You can immediately
+start another recording; there is no recovery window or acknowledgment to clear.
+No text is automatically sent to the newly focused field. The configured **Paste
+Last Dictation** shortcut explicitly pastes the last completed dictation into a
+verified field you choose.
+
+Diagnostic metadata is stored in ``~/.local/state/dictadesk/diagnostics.log``
+(or under ``XDG_STATE_HOME``). Logs rotate at 512 KiB with two backups and record
+capture levels/counts, speech thresholds, worker timing/errors and lifecycle
+transitions. They contain no microphone recordings, transcript text or API keys.
+Temporary audio used by recognition is removed when each operation finishes.
+
 
 Local or remote
 ---------------
@@ -138,7 +147,8 @@ in our tests. Long recordings are split for models with limited audio context.
 Live insertion can pause if a model revises text already inserted. Check important
 text before sending it. A live paid OpenAI transcription request is still unverified.
 
-Recordings are temporary; recent transcription stays in memory unless exported.
+Recordings are temporary; the last completed dictation stays in memory for copying
+or explicitly pasting again. There is no transcript window or pending-text queue.
 There is no telemetry. Removing the Debian package also removes its downloaded
 models for all accounts, but retains user settings, keyring entries and exported
 transcripts. Upgrades retain models. Use Preferences to remove individual models.

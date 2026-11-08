@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from ..audio.handsfree import MemoryInput, acknowledge, utterance
 from .voice_commands import wake_matches, command, choice_number
+from .diagnostics import event, failure
 
 
 class HandsFree:
@@ -40,6 +41,7 @@ class HandsFree:
         self.signature = None
         self.failed = False
         self.resume_at = 0
+        self.model_retry_at = 0
         self.recognitions = 0
         self.override_disabled = False
         self.choice = None
@@ -86,6 +88,7 @@ class HandsFree:
             self.choice[2].set()
         self.choice = None
         if not self.stop.is_set():
+            event("handsfree.suspended", generation=self.generation, state=self.state)
             self.generation += 1
             self.stop.set()
             self.finished.set()
@@ -95,7 +98,9 @@ class HandsFree:
     def join(self):
         thread = self.thread
         if thread and thread is not threading.current_thread():
-            thread.join()
+            thread.join(timeout=20)
+            if thread.is_alive():
+                raise TimeoutError("Background microphone processing did not stop. Try again.")
 
     def cancel(self):
         self.suspend()
@@ -112,6 +117,7 @@ class HandsFree:
         def update():
             if self.valid(generation):
                 self.state = state
+                event("handsfree.state", generation=generation, state=state)
                 self.changed()
 
         self.session.dispatch(update)
@@ -126,7 +132,12 @@ class HandsFree:
 
     def await_action(self, generation, stop, prefs):
         page, deadline = None, 0
+        action_deadline = time.monotonic() + 60
         while self.valid(generation) and not self.finished.is_set():
+            if time.monotonic() >= action_deadline:
+                event("handsfree.action_timeout", generation=generation)
+                self.session.dispatch(lambda: self.complete(generation))
+                return
             choice = self.choice
             if choice is None:
                 stop.wait(0.1)
@@ -147,14 +158,21 @@ class HandsFree:
 
             def select(choice=choice, text=text, reply=reply, delivered=delivered):
                 try:
-                    if self.valid(generation) and self.choice is choice:
+                    if (
+                        self.valid(generation)
+                        and self.choice is choice
+                        and not delivered.is_set()
+                    ):
                         choice[1](reply, text)
                 finally:
                     delivered.set()
 
             self.session.dispatch(select)
+            selection_deadline = time.monotonic() + 3
             while self.valid(generation) and not delivered.wait(0.1):
-                pass
+                if time.monotonic() >= selection_deadline:
+                    delivered.set()
+                    raise TimeoutError("Command selection timed out.")
 
     def tick(self):
         p = self.session.preferences
@@ -173,6 +191,7 @@ class HandsFree:
         if signature != self.signature:
             self.suspend()
             self.signature, self.failed = signature, False
+            self.model_retry_at = 0
             if not self.paused:
                 self.problem = ""
         if getattr(self.session, "desktop_blocked", False):
@@ -193,8 +212,10 @@ class HandsFree:
             self.problem = ""
         if self.thread and self.thread.is_alive():
             return
-        if self.failed or time.monotonic() < self.resume_at:
+        if time.monotonic() < self.resume_at:
             return
+        if self.failed:
+            self.failed = False
         if self.session.microphone_problem or self.session.store.problem:
             self.state, self.problem = (
                 "unavailable",
@@ -202,13 +223,18 @@ class HandsFree:
             )
             return
         if not self.session.recognizer.loaded:
+            if time.monotonic() < self.model_retry_at:
+                self.state = "unavailable"
+                self.problem = "Local model unavailable. Listening will retry automatically; check the model in Preferences."
+                return
             self.state = "loading"
-            if not self.session.problem:
-                self.session.load_available_model()
+            self.model_retry_at = time.monotonic() + 30
+            self.session.load_available_model()
             if not self.session.busy:
                 self.state = "unavailable"
                 self.problem = "Download and load a local model to use hands-free commands."
             return
+        self.model_retry_at = 0
         self.problem = ""
         self.generation += 1
         generation = self.generation
@@ -224,6 +250,7 @@ class HandsFree:
         if not data or not self.valid(generation):
             return ""
         self.recognitions += 1
+        event("handsfree.recognizing", generation=generation, samples=len(data) // 2)
         # Let an in-flight local inference finish before yielding the shared model.
         # Its result is discarded on suspension; cancellation never unloads it.
         reply = self.session.recognizer.request(
@@ -255,7 +282,14 @@ class HandsFree:
                 text = self.recognize(data, generation, stop)
                 if not self.valid(generation):
                     return
-                if not wake_matches(text, prefs.wake_phrase):
+                matched = wake_matches(text, prefs.wake_phrase)
+                event(
+                    "handsfree.wake_result",
+                    generation=generation,
+                    characters=len(text),
+                    matched=matched,
+                )
+                if not matched:
                     continue
                 if self.capture_destination:
                     captured = threading.Event()
@@ -263,7 +297,7 @@ class HandsFree:
                     def remember():
                         self.activation_target = None
                         try:
-                            if self.valid(generation):
+                            if self.valid(generation) and not captured.is_set():
                                 self.activation_target = self.capture_destination()
                         except Exception:
                             pass  # Commands with a target will fail safely.
@@ -271,8 +305,11 @@ class HandsFree:
                             captured.set()
 
                     self.session.dispatch(remember)
+                    capture_deadline = time.monotonic() + 3
                     while self.valid(generation) and not captured.wait(0.05):
-                        pass
+                        if time.monotonic() >= capture_deadline:
+                            captured.set()
+                            raise TimeoutError("Could not capture the command destination.")
                     if not self.valid(generation):
                         return
                 self.publish(generation, "command")
@@ -296,6 +333,12 @@ class HandsFree:
                 if not self.valid(generation):
                     return
                 kind, query = command(text, prefs)
+                event(
+                    "handsfree.command_result",
+                    generation=generation,
+                    recognized=kind != "unknown",
+                    command=kind,
+                )
                 if kind != "cancel":
                     self.finished.clear()
 
@@ -325,14 +368,16 @@ class HandsFree:
                 # Discard all audio during feedback and allow its sound to decay.
                 if stop.wait(1):
                     return
-        except Exception:
+        except Exception as exc:
+            failure("handsfree.failed", exc, generation=generation)
 
             def fail():
                 if self.valid(generation):
                     self.suspend()
                     self.failed = True
+                    self.resume_at = time.monotonic() + 5
                     self.state = "unavailable"
-                    self.problem = "Hands-free listening stopped. Check the microphone and local model, then toggle it to retry."
+                    self.problem = "Hands-free listening stopped. Retrying in five seconds; check the microphone and local model if this continues."
                     self.changed()
 
             self.session.dispatch(fail)

@@ -58,6 +58,7 @@ def begin():
     c.recognizer.loaded = True
     c.microphone_problem = ""
     c.result.replace("Keep this transcript.", [])
+    c.last_dictation = c.result.text
     app.deliver(c.result.text, expected)
     c.cancel()
     later(cancelled)
@@ -85,7 +86,7 @@ def moved():
     send.assert_not_called()
     assert not app.session.busy
     assert "failed" in app.session.notice
-    assert app.session.pending_text == "Keep this transcript."
+    assert not hasattr(app.session, "pending_text")
     tracker.current = expected
     expected.invalid = False
     app.keyboard.modifiers = True

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""One operation at a time; cancellation invalidates delivery, never the last result."""
+"""One operation at a time; every recording owns fresh, disposable state."""
 
 from dataclasses import replace
 import threading
@@ -10,11 +10,14 @@ import wave
 
 from ..audio.input import Capture, check, microphones
 from ..audio.service import Recognizer, compute_capabilities
+from .diagnostics import event, failure
 from .credentials import read_key
 from .models import LOCAL_MODELS, downloaded, model_directory, remove_downloads
 from .settings import SettingsStore, directory
-from .transcript import Transcript, continuation
+from .transcript import Transcript, continuation, has_content
 from .recordings import cleanup_abandoned, workspace
+
+INSERTION_TIMEOUT = 8
 
 
 class Session:
@@ -54,7 +57,7 @@ class Session:
         self.recordings_checked = False
         self.continuous = False
         self.pause_dictation = False
-        self.pending_text = ""
+        self.clipboard_fallback = lambda value: self.delivered(value, None)
         self.stream_delivered = lambda value, target, done: done(False)
 
     @property
@@ -165,6 +168,7 @@ class Session:
         if kind in ("completed", "attention", "failed", "cancelled"):
             self._recording_event(generation, "stopped")
         self._recording_events.add(kind)
+        event("recording.event", operation=generation, kind=kind, phase=self.phase)
         try:
             self.recording_event(kind, body)
         except Exception:
@@ -184,6 +188,7 @@ class Session:
         if self.handsfree:
             self.handsfree.suspend()
         self.operation += 1
+        event("session.begin", operation=self.operation, phase=phase)
         self._dictation_operation = None
         self._recording_events = set()
         self._completion_body = "Your dictation is complete."
@@ -226,6 +231,9 @@ class Session:
             except InterruptedError:
                 result, problem = None, "Cancelled. Nothing was inserted."
             except Exception as exc:
+                failure(
+                    "session.worker_failed", exc, operation=generation, phase=operation_kind
+                )
                 result, problem = None, str(exc)
 
             def finish():
@@ -237,12 +245,13 @@ class Session:
                 self._recording_event(generation, "stopped")
                 if cancel.is_set():
                     self.notice = (
-                        "Continuous dictation cancelled. Completed text is retained; text already inserted is unchanged."
+                        "Dictation cancelled. Text already inserted is unchanged."
                         if self.continuous
                         else "Cancelled. Nothing was inserted."
                     )
                     self._recording_event(generation, "cancelled")
                 elif problem:
+                    self.copy_failed_dictation(generation)
                     self.set_problem(
                         "recording"
                         if generation == self._dictation_operation
@@ -256,6 +265,13 @@ class Session:
                         if generation == self._dictation_operation:
                             self.last_dictation = self.result.text
                     except Exception as exc:
+                        failure("session.completion_failed", exc, operation=generation)
+                        self.phase = "idle"
+                        if generation == self._dictation_operation and has_content(
+                            self.result.text
+                        ):
+                            self.last_dictation = self.result.text
+                        self.copy_failed_dictation(generation)
                         self.set_problem(
                             "delivery"
                             if generation == self._dictation_operation
@@ -267,9 +283,16 @@ class Session:
                         if self.phase != "delivering":
                             self._recording_event(
                                 generation,
-                                "attention" if self.pending_text else "completed",
+                                "completed",
                                 self._completion_body,
                             )
+                event(
+                    "session.finished",
+                    operation=generation,
+                    phase=self.phase,
+                    cancelled=cancel.is_set(),
+                    failed=bool(problem or self.problem),
+                )
                 self.continuous = False
                 self.pause_dictation = False
                 if self.handsfree:
@@ -280,6 +303,18 @@ class Session:
 
         self.thread = threading.Thread(target=work, daemon=True)
         self.thread.start()
+
+    def copy_failed_dictation(self, generation):
+        if generation == self._dictation_operation and has_content(self.result.text):
+            try:
+                self.clipboard_fallback(self.result.text)
+                event(
+                    "delivery.clipboard_fallback",
+                    operation=generation,
+                    characters=len(self.result.text),
+                )
+            except Exception as exc:
+                failure("delivery.clipboard_failed", exc, operation=generation)
 
     def load_available_model(self):
         if (
@@ -407,10 +442,6 @@ class Session:
         if self.phase == "listening":
             self.finish_recording()
             return
-        if self.pending_text and not sample:
-            self.notice = "Copy or paste the uninserted text before starting a new recording."
-            self.changed()
-            return
         if not (self.can_sample if sample else self.can_record):
             self.notice = (
                 self.store.problem
@@ -428,7 +459,18 @@ class Session:
             return
         if not sample:
             self._dictation_operation = self.operation
+            self.result = Transcript()
         prefs = replace(preferences or self.preferences) if sample else self.preferences
+        event(
+            "recording.requested",
+            operation=self.operation,
+            mode="sample" if sample else "single",
+            backend=prefs.backend,
+            model=prefs.local_model,
+            precision=prefs.quantization,
+            device=prefs.device,
+            microphone_default=not bool(prefs.microphone),
+        )
 
         def variant(value):
             return value.local_model, value.quantization, value.device
@@ -537,7 +579,7 @@ class Session:
                 text = answer.get("text", "").strip()
                 if not text:
                     raise ValueError(
-                        "No speech was recognized. Your previous transcript is still available."
+                        "No speech was recognized. Try again or test the microphone in Preferences."
                     )
                 return text, capture.peak
             finally:
@@ -558,7 +600,6 @@ class Session:
                 self.notice = "Microphone sample transcribed. Nothing was copied or pasted."
             else:
                 self.result.replace(text, prefs.vocabulary, prefs.spoken_punctuation)
-                self.pending_text = ""
                 self.delivered(self.result.text, target if prefs.auto_paste else None)
                 if target is None or not prefs.auto_paste:
                     self._completion_body = "Your text has been copied to the clipboard."
@@ -583,20 +624,26 @@ class Session:
             self.notice = "Prepare the microphone and transcription backend before starting continuous dictation."
             self.changed()
             return
-        if self.pending_text:
-            self.notice = (
-                "Recover the uninserted text before starting another continuous session."
-            )
-            self.changed()
-            return
         ticket = self._begin("starting")
         if not ticket:
             return
         self._dictation_operation = self.operation
+        self.result = Transcript()
         self.continuous = True
         self.pause_dictation = pause_mode
         prefs = self.preferences
         live = prefs.backend == "local" and not pause_mode and prefs.continuous_live
+        event(
+            "recording.requested",
+            operation=self.operation,
+            mode="standard" if pause_mode else "extended",
+            live=live,
+            backend=prefs.backend,
+            model=prefs.local_model,
+            precision=prefs.quantization,
+            device=prefs.device,
+            microphone_default=not bool(prefs.microphone),
+        )
         capture_type = IncrementalCapture if live else ContinuousCapture
         self.capture = capture = capture_type(prefs, directory("CACHE") / "recordings")
         if pause_mode:
@@ -604,6 +651,8 @@ class Session:
             capture.silence_stop_seconds = prefs.silence_stop_seconds
         self.changed()
         first = True
+        inserted_length = 0
+        deferred = False
         active_segment = None
         base_original = base_corrected = ""
 
@@ -625,7 +674,13 @@ class Session:
                 def record_audio():
                     try:
                         capture.run(lambda: self.dispatch(listening))
+                    except Exception as exc:
+                        failure("session.capture_failed", exc, operation=generation)
+                        capture.problem = (
+                            "The microphone stopped unexpectedly. Try recording again."
+                        )
                     finally:
+                        capture.done.set()
                         self.dispatch(lambda: self._recording_event(generation, "stopped"))
 
                 recorder = threading.Thread(target=record_audio, daemon=True)
@@ -696,7 +751,12 @@ class Session:
                             corrected=piece.corrected,
                         ):
                             nonlocal first, active_segment, base_original, base_corrected
-                            if generation != self.operation or cancel.is_set():
+                            nonlocal inserted_length, deferred
+                            if (
+                                generation != self.operation
+                                or cancel.is_set()
+                                or acknowledged.is_set()
+                            ):
                                 acknowledged.set()
                                 return
                             if active_segment != update.segment:
@@ -705,9 +765,8 @@ class Session:
                                 base_corrected = "" if first else self.result.corrected
                             self.preview = preview if not update.final else ""
                             if conflict:
-                                # Preserve the revised hypothesis for manual review.
-                                # Never replace text in the destination or auto-paste
-                                # an ambiguous suffix after a committed prefix changes.
+                                # Copy the revised hypothesis on failure. Never
+                                # replace text already inserted with a new hypothesis.
                                 if corrected:
                                     self.result.original = base_original + continuation(
                                         base_original, text
@@ -715,7 +774,6 @@ class Session:
                                     self.result.corrected = base_corrected + continuation(
                                         base_corrected, corrected
                                     )
-                                self.pending_text = ""
                                 self.preview = ""
                                 capture.stop.set()
                                 acknowledged.set()
@@ -735,22 +793,28 @@ class Session:
                             )
                             self.result.corrected = combined
                             self.result.undo = False
-                            self.pending_text += delta
+                            if not delta:
+                                acknowledged.set()
+                                self.changed()
+                                return
                             completed = False
 
                             def done(inserted):
-                                nonlocal completed
-                                if completed:
+                                nonlocal completed, inserted_length, deferred
+                                if completed or acknowledged.is_set():
                                     return
                                 completed = True
-                                if inserted and delta and generation == self.operation:
-                                    self.pending_text = self.pending_text[: -len(delta)]
+                                if generation == self.operation:
+                                    if inserted:
+                                        inserted_length += len(delta)
+                                    else:
+                                        deferred = True
                                 acknowledged.set()
                                 self.changed()
 
                             self.changed()
                             try:
-                                if delta and target and prefs.auto_paste:
+                                if delta and target and prefs.auto_paste and not deferred:
                                     self.stream_delivered(delta, target, done)
                                 else:
                                     done(False)
@@ -758,17 +822,22 @@ class Session:
                                 done(False)
 
                         self.dispatch(accept)
+                        deadline = time.monotonic() + INSERTION_TIMEOUT
                         while not acknowledged.wait(0.1):
                             if cancel.is_set():
-                                capture.cancel.set()
+                                acknowledged.set()
+                                raise InterruptedError()
+                            if time.monotonic() >= deadline:
+                                acknowledged.set()
+                                raise TimeoutError(
+                                    "Text insertion timed out. Try recording again."
+                                )
                         if conflict:
                             raise RuntimeError(
-                                "Recognition revised words already committed. Dictation stopped. Review Last Transcript before replacing text in your document; no earlier text was automatically changed."
+                                "Recognition revised words already inserted. Dictation stopped; the revised transcript was copied to the clipboard. Previously inserted text is unchanged."
                             )
                     if capture.problem:
-                        raise RuntimeError(
-                            capture.problem + " Completed text remains in Last Transcript."
-                        )
+                        raise RuntimeError(capture.problem)
                     return capture.timed_out
                 finally:
                     capture.cancel.set()
@@ -776,21 +845,26 @@ class Session:
 
         def complete(timed_out):
             if first:
+                if capture.levels.samples and not capture.levels.voiced:
+                    raise ValueError(
+                        "No speech reached recognition: captured audio stayed below the Silence Threshold. Lower that threshold or increase microphone input volume in Preferences, then try again."
+                    )
                 raise ValueError(
-                    "No speech was recognized. Your previous transcript is still available."
+                    "No speech was recognized. Try again or test the microphone in Preferences."
                 )
-            self.notice = ("Recording time limit reached. " if timed_out else "") + (
-                "Uninserted text is available to copy or paste." if self.pending_text else ""
-            )
-
-            if self.pending_text:
-                self.delivered(self.pending_text, target if prefs.auto_paste else None)
+            self.notice = "Recording time limit reached." if timed_out else ""
+            # Only this recording's transcript and acknowledged prefix are used.
+            # Failed delivery never creates persistent pending/recovery state.
+            remaining = self.result.text[inserted_length:]
+            if remaining:
+                self.delivered(remaining, target if prefs.auto_paste else None)
                 if not prefs.auto_paste:
                     self._completion_body = "Your text has been copied to the clipboard."
 
         self._run(ticket, work, complete)
 
     def finish_recording(self):
+        event("session.stop_requested", operation=self.operation, phase=self.phase)
         if self.capture:
             self.capture.stop.set()
             self.notice = "Finishing recording…"
@@ -803,6 +877,7 @@ class Session:
         if self.capture:
             self.capture.cancel.set()
         self.phase = "cancelling"
+        event("session.cancel_requested", operation=self.operation, phase=self.phase)
         self.changed()
 
     def save_preferences(self, prefs, success, prepare=lambda: None):
@@ -881,10 +956,18 @@ class Session:
             for native_finished in device_checks:
                 native_finished.wait()
             if self.handsfree:
-                self.handsfree.join()
-            self.recognizer.close()
+                try:
+                    self.handsfree.join()
+                except Exception as exc:
+                    failure("shutdown.listener_failed", exc)
+            try:
+                self.recognizer.close()
+            except Exception as exc:
+                failure("shutdown.worker_failed", exc)
             if thread and thread.is_alive():
-                thread.join()
+                thread.join(timeout=5)
+                if thread.is_alive():
+                    event("shutdown.operation_timeout", operation=self.operation)
             self.dispatch(done)
 
         threading.Thread(target=cleanup, daemon=True).start()

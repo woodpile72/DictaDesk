@@ -71,7 +71,6 @@ class SampleTests(unittest.TestCase):
         self.session.microphone_problem = "The saved microphone is missing"
         self.session.result.replace("Keep dictation", [])
         self.session.last_dictation = "Keep completed dictation"
-        self.session.pending_text = "Keep recovery text"
         self.settings = self.session.preferences
         self.draft = replace(self.settings, microphone="Selected microphone", host_api="ALSA")
         SampleCapture.seen = []
@@ -103,7 +102,7 @@ class SampleTests(unittest.TestCase):
         self.assertIs(self.session.preferences, self.settings)
         self.assertEqual(self.session.result.text, "Keep dictation")
         self.assertEqual(self.session.last_dictation, "Keep completed dictation")
-        self.assertEqual(self.session.pending_text, "Keep recovery text")
+        self.assertFalse(hasattr(self.session, "pending_text"))
         self.assertFalse(self.deliveries)
 
     def test_sample_loads_installed_model_and_uses_unsaved_microphone(self):

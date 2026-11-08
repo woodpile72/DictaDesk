@@ -331,6 +331,35 @@ finally:
             worker.request({"op": "load"}, threading.Event(), timeout=0.1)
         self.assertIsNone(worker.process)
 
+    def test_large_audio_submission_can_be_cancelled_when_worker_is_not_reading(self):
+        worker = self.worker("import time;time.sleep(60)")
+        cancelled = threading.Event()
+        timer = threading.Timer(0.1, cancelled.set)
+        timer.start()
+        try:
+            with self.assertRaises(InterruptedError):
+                worker.request(
+                    {"op": "transcribe_pcm", "audio": "A" * 340000}, cancelled, timeout=2
+                )
+            self.assertIsNone(worker.process)
+        finally:
+            timer.cancel()
+            timer.join()
+
+    def test_waiting_for_inference_lock_is_cancellable_and_bounded(self):
+        worker = self.worker("raise Exception('must not start')")
+        worker.serial.acquire()
+        try:
+            with self.assertRaises(TimeoutError):
+                worker.request({"op": "load"}, threading.Event(), timeout=0.01)
+            cancelled = threading.Event()
+            cancelled.set()
+            with self.assertRaises(InterruptedError):
+                worker.request({"op": "load"}, cancelled, timeout=1)
+            self.assertIsNone(worker.process)
+        finally:
+            worker.serial.release()
+
     def test_invalid_protocol_fails(self):
         worker = self.worker("import sys\nsys.stdin.readline()\nprint('oops', flush=True)")
         with self.assertRaises(RuntimeError):
@@ -533,6 +562,27 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(self.deliveries, [])
         self.assertEqual(self.session.result.text, "previous")
         self.assertEqual(self.session.phase, "idle")
+
+    def test_shutdown_cleanup_failure_still_finishes(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        self.session.handsfree = SimpleNamespace(
+            suspend=Mock(), join=Mock(side_effect=TimeoutError())
+        )
+        self.session.recognizer.close = Mock(
+            side_effect=RuntimeError("fixture cleanup failure")
+        )
+        finished = threading.Event()
+        self.session.close(finished.set)
+        deadline = time.monotonic() + 2
+        while not finished.is_set() and time.monotonic() < deadline:
+            try:
+                self.callbacks.get(timeout=0.05)()
+            except queue.Empty:
+                pass
+        self.assertTrue(finished.is_set())
+        self.assertTrue(self.session.closing)
 
     def test_old_operation_completion_cannot_override_new(self):
         ticket = self.session._begin("loading")

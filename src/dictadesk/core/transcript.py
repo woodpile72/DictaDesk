@@ -5,6 +5,11 @@ import re
 from dataclasses import dataclass
 
 
+def has_content(value):
+    """Reject empty results, retaining intentional spoken line breaks and tabs."""
+    return isinstance(value, str) and bool(value.strip() or "\n" in value or "\t" in value)
+
+
 COMMANDS = {
     "dot dot dot": "…",
     "new paragraph": "\n\n",

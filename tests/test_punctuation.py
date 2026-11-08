@@ -103,3 +103,13 @@ class PunctuationTests(unittest.TestCase):
         self.assertFalse(Preferences().spoken_punctuation)
         with self.assertRaises(ValueError):
             Preferences(spoken_punctuation="yes").validate()
+
+
+class TranscriptContentTests(unittest.TestCase):
+    def test_empty_results_are_rejected_but_spoken_formatting_is_retained(self):
+        from dictadesk.core.transcript import has_content
+
+        for value in (None, [], "", "   "):
+            self.assertFalse(has_content(value))
+        for value in ("text", "\n", "\n\n", "\t"):
+            self.assertTrue(has_content(value))

@@ -10,6 +10,7 @@ import threading
 import time
 
 from .input import Capture, RATE, resolve
+from ..core.diagnostics import event, failure
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,13 @@ class ContinuousCapture(Capture):
         else:
             update = self.pause_update()
         if update:
+            event(
+                "audio.segment",
+                segment=update.segment,
+                samples=len(update.audio) // 2,
+                final=update.final,
+                paused=update.paused,
+            )
             while not self.cancel.is_set():
                 try:
                     self.phrases.put(update, timeout=0.1)
@@ -155,18 +163,16 @@ class ContinuousCapture(Capture):
             try:
                 # RawInputStream supplies a CFFI buffer, not a bytes sequence.
                 block = bytes(data)
-                samples = array("h", block)
-                self.level = max((abs(v) for v in samples), default=0) / 32768
+                self.level, rms, samples = self.levels.observe(block)
                 self.peak = max(self.peak, self.level)
                 chunks.put_nowait(block)
                 if self.silence_stop_seconds:
                     # Count microphone time independently of phrase resets and
                     # inference speed. Use the same noise threshold as splitting.
-                    rms = math.sqrt(sum(v * v for v in samples) / max(1, len(samples))) / 32768
                     self.silent_frames = (
                         0
                         if rms >= self.prefs.silence_threshold
-                        else self.silent_frames + len(samples)
+                        else self.silent_frames + samples
                     )
                     if self.silent_frames >= self.silence_stop_seconds * RATE:
                         self.silence_stopped = True
@@ -174,7 +180,8 @@ class ContinuousCapture(Capture):
             except queue.Full:
                 self.problem = "Recognition could not keep up. Recording stopped; check the last phrase before continuing."
                 self.stop.set()
-            except Exception:
+            except Exception as exc:
+                failure("audio.callback_failed", exc)
                 # Callback exceptions otherwise disappear on the audio thread.
                 self.problem = "Microphone audio could not be read. Recording stopped; completed text is retained."
                 self.stop.set()
@@ -182,6 +189,7 @@ class ContinuousCapture(Capture):
         try:
             if self.cancel.is_set():
                 return
+            self.levels.last_block = time.monotonic()
             with sd.RawInputStream(
                 device=resolve(self.prefs),
                 samplerate=RATE,
@@ -190,9 +198,16 @@ class ContinuousCapture(Capture):
                 blocksize=1600,
                 callback=receive,
             ):
+                event(
+                    "audio.started",
+                    mode="continuous",
+                    limit=self.limit,
+                    threshold=self.prefs.silence_threshold,
+                )
                 started()
                 deadline = time.monotonic() + self.limit
                 while not self.stop.is_set() and not self.cancel.is_set():
+                    self.levels.check_callbacks()
                     if time.monotonic() >= deadline:
                         self.timed_out = True
                         break
@@ -205,10 +220,20 @@ class ContinuousCapture(Capture):
             if not self.cancel.is_set():
                 self.emit(splitter.finish())
                 finish_limit()
-        except Exception:
-            self.problem = "The microphone stopped. Completed text is retained; check the microphone before continuing."
+        except Exception as exc:
+            failure("audio.failed", exc)
+            self.problem = "The microphone stopped. Try recording again or test the microphone in Preferences."
         finally:
             self.done.set()
+            self.levels.report(
+                "audio.stopped",
+                mode="continuous",
+                cancelled=self.cancel.is_set(),
+                failed=bool(self.problem),
+                timed_out=self.timed_out,
+            )
+            if not self.levels.voiced and self.levels.samples:
+                event("audio.below_threshold", threshold=self.prefs.silence_threshold)
 
 
 class IncrementalCapture(ContinuousCapture):

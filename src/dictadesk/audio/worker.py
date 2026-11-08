@@ -12,6 +12,8 @@ import uuid
 import wave
 from pathlib import Path
 
+from ..core.diagnostics import event, failure
+
 
 def configure_hub_downloads():
     from huggingface_hub.utils import get_session
@@ -24,6 +26,14 @@ def configure_hub_downloads():
 
 def transcribe(model, path, local_model):
     from ..core.models import LOCAL_MODELS
+
+    with wave.open(path) as audio:
+        event(
+            "worker.audio",
+            samples=audio.getnframes(),
+            rate=audio.getframerate(),
+            local_model=local_model,
+        )
 
     limit = LOCAL_MODELS[local_model].get("max_audio_seconds")
     if limit is None:
@@ -57,6 +67,13 @@ def transcribe_pcm(model, encoded):
     if not data or len(data) > maximum or len(data) % 2:
         raise ValueError("Invalid command audio.")
     samples = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768
+    event(
+        "worker.pcm",
+        samples=len(samples),
+        rate=16000,
+        peak=float(np.max(np.abs(samples))),
+        rms=float(np.sqrt(np.mean(samples**2))),
+    )
     return model.recognize(samples, sample_rate=16000)
 
 
@@ -199,6 +216,7 @@ def load_model(request):
 def main():
     model = None
     model_location = None
+    event("worker.ready")
     for line in sys.stdin:
         try:
             request = json.loads(line)
@@ -239,6 +257,7 @@ def main():
                 else:
                     raise ValueError("Unsupported worker operation.")
         except Exception as exc:
+            failure("worker.failed", exc)
             # Never echo a request or credential; third-party errors may contain URLs.
             message = (
                 str(exc)

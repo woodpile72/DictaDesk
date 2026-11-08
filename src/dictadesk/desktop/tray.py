@@ -210,7 +210,6 @@ class Tray:
     def rows(self):
         c = self.app.session
         return {
-            1: ("Last Transcript…", "transcript", bool(c.result.text or c.pending_text)),
             2: (
                 "Stop Recording" if c.phase == "listening" else "Start Recording",
                 "record",
@@ -226,7 +225,6 @@ class Tray:
                 c.preferences.backend == "local"
                 and (not c.busy or (self.app.handsfree and self.app.handsfree.enabled)),
             ),
-            7: ("Copy Uninserted Text", "copy-pending", bool(c.pending_text) and not c.busy),
             8: ("About DictaDesk", "about", True),
             9: ("Usage & Commands…", "usage", True),
             10: (

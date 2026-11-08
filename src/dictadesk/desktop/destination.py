@@ -237,7 +237,7 @@ class DestinationTracker:
             if not prop or int(prop.value[0]) != target.window.pid:
                 return False
             if target.explicit and not target.control:
-                # A deliberate Paste Last Transcript shortcut authorizes only
+                # A deliberate Paste Last Dictation shortcut authorizes only
                 # the exact currently focused X window, never refocusing it.
                 return destination(self.connection) == target.window
             if not target.control or not self.usable(target.control):

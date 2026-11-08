@@ -135,7 +135,7 @@ def finished_twice():
     global move_on_first
     assert len(sent) == 3, "Finalization duplicated the document"
     assert not app.keyboard.escape
-    assert not app.session.pending_text
+    assert not hasattr(app.session, "pending_text")
     assert app.session.result.text == "Hello, world. Next…"
     sent.clear()
     move_on_first = True
@@ -143,7 +143,7 @@ def finished_twice():
     app.session.recognizer = FakeRecognizer()
     app.key_pressed("continuous")
     assert app.session.capture.silence_stop_seconds == 0
-    until(lambda: app.session.pending_text == ". Next…", finish_moved)
+    until(lambda: app.session.result.text == "Hello, world. Next…", finish_moved)
 
 
 def finish_moved():
@@ -156,7 +156,7 @@ def finish_moved():
 def moved():
     global current, move_on_first
     assert sent == ["Hello, world", ". Next…"], sent
-    assert not app.session.pending_text
+    assert not hasattr(app.session, "pending_text")
     assert app.session.result.text == "Hello, world. Next…"
     current = expected
     tracker.current = expected
@@ -166,13 +166,13 @@ def moved():
 
 def recovered():
     assert sent == ["Hello, world", ". Next…"], sent
-    assert not app.session.pending_text
+    assert not hasattr(app.session, "pending_text")
     sent.clear()
     expected.deferred = False
     app.session.recognizer = FakeRecognizer()
     app.keyboard.modifiers = True
     app.key_pressed("continuous")
-    until(lambda: bool(app.session.result.text) and bool(app.session.pending_text), cancel)
+    until(lambda: bool(app.session.result.text), cancel)
 
 
 def cancel():
@@ -183,7 +183,8 @@ def cancel():
 
 def cancelled():
     assert sent == [], sent
-    assert app.session.pending_text == "Hello, world"
+    assert app.session.result.text == "Hello, world"
+    assert not hasattr(app.session, "pending_text")
     assert "already inserted" in app.session.notice
     print(
         "PASS continuous GTK: toggle, incremental clipboard, no final duplication, focus-change deferral and final restoration, held modifiers and cancellation"

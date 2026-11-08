@@ -6,10 +6,63 @@ import tempfile
 import threading
 import time
 import wave
+import math
 from array import array
 from pathlib import Path
 
+from ..core.diagnostics import event, failure
+
 RATE = 16000
+
+
+class AudioLevels:
+    """Aggregate measurements only; no audio is retained for diagnostics."""
+
+    def __init__(self, threshold):
+        self.threshold = threshold
+        self.samples = self.voiced = self.clipped = 0
+        self.squares = self.peak = self.max_rms = 0.0
+        self.last_block = time.monotonic()
+        self.next_report = self.last_block + 5
+
+    def observe(self, data):
+        values = array("h", data)
+        if not values:
+            raise ValueError("Empty microphone callback")
+        squares = sum(v * v for v in values)
+        rms = math.sqrt(squares / len(values)) / 32768
+        peak = max(abs(v) for v in values) / 32768
+        self.samples += len(values)
+        self.squares += squares
+        self.peak = max(self.peak, peak)
+        self.max_rms = max(self.max_rms, rms)
+        self.voiced += len(values) if rms >= self.threshold else 0
+        self.clipped += sum(abs(v) >= 32760 for v in values)
+        self.last_block = time.monotonic()
+        return peak, rms, len(values)
+
+    def report(self, name, **metadata):
+        event(
+            name,
+            samples=self.samples,
+            rate=RATE,
+            peak=round(self.peak, 6),
+            rms=round(math.sqrt(self.squares / max(1, self.samples)) / 32768, 6),
+            max_block_rms=round(self.max_rms, 6),
+            voiced_samples=self.voiced,
+            clipped_samples=self.clipped,
+            threshold=self.threshold,
+            **metadata,
+        )
+
+    def check_callbacks(self):
+        if time.monotonic() >= self.next_report:
+            self.report("audio.progress")
+            self.next_report = time.monotonic() + 5
+        if time.monotonic() - self.last_block > 5:
+            raise RuntimeError(
+                "The microphone stopped supplying audio. Try recording again or choose another input in Preferences."
+            )
 
 
 def microphones():
@@ -58,6 +111,7 @@ class Capture:
         self.error = ""
         self.samples = 0
         self.previewer = None
+        self.levels = AudioLevels(prefs.silence_threshold)
 
     def run(self, started):
         import sounddevice as sd
@@ -79,14 +133,17 @@ class Capture:
                     "Audio was interrupted. Try a different microphone or input settings."
                 )
                 self.stop.set()
-            block = bytes(data)
-            samples = array("h", block)
-            self.level = max((abs(value) for value in samples), default=0) / 32768
-            self.peak = max(self.peak, self.level)
             try:
+                block = bytes(data)
+                self.level, _, _ = self.levels.observe(block)
+                self.peak = max(self.peak, self.level)
                 chunks.put_nowait(block)
             except queue.Full:
                 self.error = "Audio could not be captured fast enough. Please try again."
+                self.stop.set()
+            except Exception as exc:
+                failure("audio.callback_failed", exc)
+                self.error = "Microphone audio could not be read. Try recording again."
                 self.stop.set()
 
         try:
@@ -94,6 +151,7 @@ class Capture:
                 output.setnchannels(1)
                 output.setsampwidth(2)
                 output.setframerate(RATE)
+                self.levels.last_block = time.monotonic()
                 with sd.RawInputStream(
                     device=resolve(self.prefs),
                     samplerate=RATE,
@@ -102,6 +160,7 @@ class Capture:
                     blocksize=1600,
                     callback=receive,
                 ):
+                    event("audio.started", mode="sample_or_single", limit=self.limit)
                     started()
                     deadline = time.monotonic() + self.limit
                     while (
@@ -109,6 +168,7 @@ class Capture:
                         and not self.cancel.is_set()
                         and time.monotonic() < deadline
                     ):
+                        self.levels.check_callbacks()
                         try:
                             data = chunks.get(timeout=0.1)
                             output.writeframesraw(data)
@@ -135,3 +195,9 @@ class Capture:
             raise
         finally:
             self.done.set()
+            self.levels.report(
+                "audio.stopped",
+                mode="sample_or_single",
+                cancelled=self.cancel.is_set(),
+                failed=bool(self.error),
+            )

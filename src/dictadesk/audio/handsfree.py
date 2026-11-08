@@ -7,7 +7,8 @@ import queue
 import threading
 import time
 
-from .input import RATE, resolve
+from .input import RATE, AudioLevels, resolve
+from ..core.diagnostics import event, failure
 
 BLOCK_SECONDS = 0.1
 MAX_AUDIO_SECONDS = 8
@@ -25,6 +26,8 @@ class MemoryInput:
         self.error = ""
         self.stream = None
         self.closed = threading.Event()
+        self.levels = AudioLevels(prefs.silence_threshold)
+        self.dropped = 0
 
     def __enter__(self):
         import sounddevice as sd
@@ -33,15 +36,19 @@ class MemoryInput:
             if self.closed.is_set():
                 return
             if status:
-                self.error = (
-                    "Microphone audio was interrupted. Toggle hands-free commands to retry."
-                )
+                self.error = "Microphone audio was interrupted. Listening will retry."
                 return
             try:
-                self.blocks.put_nowait(bytes(data))
+                block = bytes(data)
+                self.levels.observe(block)
+                self.blocks.put_nowait(block)
             except queue.Full:
                 # Recognition may take longer than capture. Never keep its backlog.
                 self.discard()
+                self.dropped += 1
+            except Exception as exc:
+                failure("audio.callback_failed", exc)
+                self.error = "Microphone audio could not be read. Listening will retry."
 
         self.stream = sd.RawInputStream(
             device=resolve(self.prefs),
@@ -52,7 +59,9 @@ class MemoryInput:
             callback=receive,
         )
         try:
+            self.levels.last_block = time.monotonic()
             self.stream.start()
+            event("audio.started", mode="handsfree", threshold=self.prefs.silence_threshold)
         except BaseException:
             self.stream.close()
             raise
@@ -69,6 +78,7 @@ class MemoryInput:
         while not stop.is_set() and time.monotonic() < deadline:
             if self.error:
                 raise RuntimeError(self.error)
+            self.levels.check_callbacks()
             try:
                 return self.blocks.get(timeout=0.1)
             except queue.Empty:
@@ -77,10 +87,20 @@ class MemoryInput:
 
     def __exit__(self, *_):
         self.closed.set()
-        if self.stream:
-            self.stream.abort()
-            self.stream.close()
-        self.discard()
+        try:
+            if self.stream:
+                try:
+                    self.stream.abort()
+                finally:
+                    self.stream.close()
+        finally:
+            self.discard()
+            self.levels.report(
+                "audio.stopped",
+                mode="handsfree",
+                dropped_blocks=self.dropped,
+                failed=bool(self.error),
+            )
 
 
 def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_seconds=8):
@@ -88,6 +108,7 @@ def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_sec
     audio = bytearray()
     voiced = quiet = 0
     armed = not require_quiet
+    started = time.monotonic()
     while not stop.is_set():
         block = source.read(stop, deadline)
         if block is None:
@@ -106,8 +127,16 @@ def utterance(source, stop, *, threshold, deadline, require_quiet=False, max_sec
         if speaking or audio:
             audio.extend(block)
         if quiet >= 5 or len(audio) >= max_seconds * RATE * 2:
-            return bytes(audio) if voiced >= 2 else b""
-    return bytes(audio) if not stop.is_set() and voiced >= 2 else b""
+            break
+    result = bytes(audio) if not stop.is_set() and voiced >= 2 else b""
+    event(
+        "handsfree.utterance",
+        samples=len(result) // 2,
+        voiced_blocks=voiced,
+        elapsed=round(time.monotonic() - started, 3),
+        cancelled=stop.is_set(),
+    )
+    return result
 
 
 def acknowledge(stop):

@@ -138,7 +138,7 @@ class UsageWindow:
         self.standard = self.section(
             f"Standard Dictation — {Chord.parse(p.shortcut)}",
             f"1. Click in the text field where you want to dictate.\n2. Press {Chord.parse(p.shortcut)}.\n3. Speak normally.\n4. Press {Chord.parse(p.shortcut)} again or Escape to finish.\n\n"
-            "Text is inserted at pauses. DictaDesk remembers the original field when supported; after a focus change, remaining text waits until you finish, then returns to that field. Unavailable destinations retain the text for recovery.",
+            "Text is inserted at pauses. DictaDesk remembers the original field when supported; after a focus change, remaining text waits until you finish, then returns to that field. If insertion fails, the text is copied to the clipboard with a notification. You can immediately record again.",
         )
         self.extended = self.section(
             f"Extended Dictation — {Chord.parse(p.continuous_shortcut)}",

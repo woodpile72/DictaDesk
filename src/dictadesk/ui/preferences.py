@@ -111,7 +111,7 @@ class PreferencesDialog:
             ("shortcut", "Record"),
             ("continuous_shortcut", "Toggle Continuous Dictation"),
             ("cancel_shortcut", "Cancel Recording"),
-            ("paste_shortcut", "Paste Last Transcript"),
+            ("paste_shortcut", "Paste Last Dictation"),
         ):
             row = Adw.ActionRow(title=title, subtitle=str(Chord.parse(self.values[key])))
             button = Gtk.Button(label="Change…", valign=Gtk.Align.CENTER)

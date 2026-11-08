@@ -152,9 +152,7 @@ def capture_failure():
     c._recording_event(c.operation, "started")
 
     def silent(_):
-        raise ValueError(
-            "No speech was recognized. Your previous transcript is still available."
-        )
+        raise ValueError("No speech was recognized. Try again.")
 
     c._run(ticket, lambda *_: None, silent)
     until(lambda: not c.busy and len(host.messages) == 7, silent_failure)

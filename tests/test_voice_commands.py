@@ -437,7 +437,9 @@ class CoordinatorTests(unittest.TestCase):
                     "dictadesk.core.handsfree.utterance",
                     return_value=VOICE if reply == "cancel" else b"",
                 ),
-                patch("dictadesk.core.handsfree.time.monotonic", side_effect=[0, 21, 22]),
+                patch(
+                    "dictadesk.core.handsfree.time.monotonic", side_effect=[0, 0, 0, 21, 22, 23]
+                ),
             ):
                 self.hf.await_action(0, self.hf.stop, self.session.preferences)
             self.assertEqual(received, [reply])
@@ -596,6 +598,57 @@ class CoordinatorTests(unittest.TestCase):
         self.hf.run(0, self.hf.stop, self.session.preferences)
         self.assertTrue(self.hf.failed)
         self.assertEqual(self.hf.state, "unavailable")
+
+    def test_previous_processing_error_does_not_permanently_block_model_reload(self):
+        with patch("dictadesk.core.handsfree.threading.Thread"):
+            self.hf.tick()
+        self.hf.thread = None
+        self.hf.suspend()
+        self.hf.resume_at = 0
+        self.session.recognizer.loaded = False
+        self.session.problem = (1, "recording", "previous error")
+        self.hf.tick()
+        self.session.load_available_model.assert_called_once()
+        self.hf.tick()
+        self.session.load_available_model.assert_called_once()
+        self.hf.model_retry_at = 0
+        self.hf.tick()
+        self.assertEqual(self.session.load_available_model.call_count, 2)
+
+    def test_microphone_failure_retries_after_backoff_without_manual_toggle(self):
+        self.hf.signature = (
+            self.session.preferences.backend,
+            self.session.preferences.hands_free,
+            self.session.preferences.wake_phrase,
+            self.session.preferences.command_sound,
+            self.session.preferences.local_model,
+            self.session.preferences.quantization,
+            self.session.preferences.device,
+            self.session.preferences.microphone,
+            self.session.preferences.host_api,
+            self.session.preferences.silence_threshold,
+        )
+        self.hf.source = Mock(side_effect=RuntimeError("temporary failure"))
+        self.hf.run(0, self.hf.stop, self.session.preferences)
+        with patch("dictadesk.core.handsfree.threading.Thread") as thread:
+            self.hf.tick()
+            thread.assert_not_called()
+            self.hf.resume_at = 0
+            self.hf.tick()
+            thread.return_value.start.assert_called_once()
+        self.assertFalse(self.hf.failed)
+
+    def test_manual_recording_failure_returns_microphone_to_wake_listener(self):
+        self.hf.signature = None
+        self.session.busy = True
+        self.hf.tick()
+        self.assertFalse(self.hf.valid(self.hf.generation))
+        self.session.busy = False
+        self.hf.resume_at = 0
+        with patch("dictadesk.core.handsfree.threading.Thread") as thread:
+            self.hf.tick()
+            thread.return_value.start.assert_called_once()
+        self.assertTrue(self.hf.valid(self.hf.generation))
 
     def test_disable_during_inference_has_already_released_microphone(self):
         active = self.prepare([])
