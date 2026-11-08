@@ -26,6 +26,7 @@ assert defaults.local_model == "parakeet"
 assert not defaults.hands_free and defaults.wake_phrase == "Clanker"
 assert defaults.command_sound
 assert Path("/usr/lib/dictadesk/dictadesk/resources/dictadesk-panel-wake-color.svg").is_file()
+assert Path("/usr/lib/dictadesk/dictadesk/resources/dictadesk-panel-wake-symbolic.svg").is_file()
 assert str(model_directory(create=True)).startswith("/var/cache/dictadesk/")
 bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 app_path = "/" + APP_ID.replace(".", "/")

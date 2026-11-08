@@ -9,8 +9,9 @@ dictadesk (1.2.0) unstable; urgency=medium
   * Remove blocking transcript recovery; copy failed insertions to the clipboard.
   * Recover recording state after cancellation, empty results and processing errors.
   * Add private metadata diagnostics and bounded speech-worker communication.
+  * Keep panel icon sizing and artwork consistent across state changes.
 
- -- Erick Woods <woodpile72@users.noreply.github.com>  Sun, 08 Nov 2026 05:46:37 +0000
+ -- Erick Woods <woodpile72@users.noreply.github.com>  Sun, 08 Nov 2026 14:20:54 +0000
 
 dictadesk (1.0.12) unstable; urgency=medium
 

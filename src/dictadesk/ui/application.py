@@ -475,7 +475,6 @@ class Application(Adw.Application):
         voice_view = (
             self.handsfree.state,
             self.handsfree.problem,
-            int(time.monotonic() / 0.8) % 2 if self.handsfree.state == "command" else None,
         )
         if voice_view != self.voice_view:
             self.voice_view = voice_view
@@ -550,14 +549,16 @@ class Application(Adw.Application):
             if state == "wake":
                 shape, title = "wake", f"Listening locally for “{c.preferences.wake_phrase}”"
             elif state == "command":
-                shape = "wake" if int(time.monotonic() / 0.8) % 2 else "idle"
+                shape = "listening"
                 title = (
                     "Choose an application by number (local). Say cancel or press Escape to stop."
                     if self.handsfree.choice
                     else "Waiting for a command (local). Say cancel or press Escape to stop."
                 )
             elif state == "processing":
-                shape, title = "processing", "Checking the wake phrase locally"
+                # Background checks must not blink the listening indicator on
+                # every utterance; describe this short phase in the tooltip.
+                shape, title = "wake", "Checking the wake phrase locally"
             elif state == "paused":
                 shape, title = "idle", f"Voice commands paused: {self.handsfree.problem}"
             elif state in ("loading", "unavailable"):

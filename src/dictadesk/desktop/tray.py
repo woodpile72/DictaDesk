@@ -155,10 +155,8 @@ class Tray:
         self.ready = ready
 
     def icon(self):
-        if self.state == "wake":
-            # Keep the blue badge colored: symbolic recoloring only supports
-            # the host's success/warning/error palette.
-            return "dictadesk-panel-wake-color"
+        # Cinnamon assigns different panel sizes to symbolic and full-color
+        # icons. Respect the selected family for EVERY state, including wake.
         suffix = "-symbolic" if self.symbolic else "-color"
         state = "recording" if self.state == "listening" else self.state
         return "dictadesk-panel-" + state + suffix
@@ -303,9 +301,11 @@ class Tray:
         )
 
     def update(self, state, title, symbolic):
+        previous_icon = self.icon()
         self.state, self.title, self.symbolic = state, title, symbolic
         self.revision += 1
-        for signal in ("NewIcon", "NewToolTip"):
+        signals = ("NewIcon", "NewToolTip") if self.icon() != previous_icon else ("NewToolTip",)
+        for signal in signals:
             self.connection.emit_signal(
                 None, "/StatusNotifierItem", "org.kde.StatusNotifierItem", signal, None
             )

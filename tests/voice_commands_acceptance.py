@@ -99,13 +99,17 @@ def preferences():
     )
     app.refresh()
     assert updates[-1][0] == "wake" and "Listening locally" in updates[-1][1]
+    app.handsfree.state = "processing"
+    app.refresh()
+    assert updates[-1][0] == "wake" and "Checking" in updates[-1][1]
     app.handsfree.state = "command"
     with patch("dictadesk.ui.application.time.monotonic", return_value=0.9):
         app.refresh()
-    assert updates[-1][0] == "wake"
+    assert updates[-1][0] == "listening" and "command" in updates[-1][1]
+    count = len(updates)
     with patch("dictadesk.ui.application.time.monotonic", return_value=1.7):
         app.refresh()
-    assert updates[-1][0] == "idle" and "command" in updates[-1][1]
+    assert len(updates) == count, "Command listening still flashes the tray icon"
     app.session.phase = "listening"
     app.refresh()
     assert updates[-1][0] == "listening"
@@ -231,7 +235,7 @@ def done():
     assert intervals and intervals[int(len(intervals) * 0.95)] < 0.1
     print(f"GTK heartbeat p95: {intervals[int(len(intervals) * 0.95)] * 1000:.1f} ms")
     print(
-        "PASS Voice Commands GTK: local-only preferences, validation, blue/flashing/red states, desktop launch, ambiguity and stale chooser rejection"
+        "PASS Voice Commands GTK: local-only preferences, validation, steady listening indicators, desktop launch, ambiguity and stale chooser rejection"
     )
     app.request_quit()
 

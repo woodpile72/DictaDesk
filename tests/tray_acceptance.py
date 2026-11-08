@@ -64,6 +64,22 @@ def begin():
 
 def registered():
     assert registrations and app.tray.ready
+    # Exercise the real exported icon names and raster payload. Cinnamon picks
+    # a panel size by icon family; all states must retain that family and the
+    # exact microphone pixels, with only the reserved badge corner changing.
+    for symbolic in (True, False):
+        microphone = None
+        for state in ("idle", "wake", "listening", "loading", "processing", "unavailable"):
+            app.tray.update(state, state, symbolic)
+            name = app.tray.item_property(None, None, None, None, "IconName").unpack()
+            assert name.endswith("-symbolic" if symbolic else "-color"), name
+            width, height, argb = app.tray.pixmap()[0]
+            assert (width, height) == (32, 32)
+            pixels = bytes(argb[(y * width + x) * 4] for y in range(height) for x in range(20))
+            assert any(pixels)
+            if microphone is None:
+                microphone = pixels
+            assert pixels == microphone, f"Microphone changes size/position in {state}"
     app.session.microphone_problem = ""
     app.session.recognizer.loaded = False
     with patch("dictadesk.core.session.downloaded", return_value=True):
