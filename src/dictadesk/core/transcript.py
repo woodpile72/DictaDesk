@@ -9,6 +9,7 @@ COMMANDS = {
     "dot dot dot": "…",
     "new paragraph": "\n\n",
     "new line": "\n",
+    "tab": "\t",
     "question mark": "?",
     "exclamation mark": "!",
     "exclamation point": "!",
@@ -75,7 +76,7 @@ def following(chunk, pending):
         chunk = re.sub(r"^(\W*)(\w)", lambda m: m[1] + m[2].upper(), chunk, count=1)
     no_space = (
         pending in "([{"
-        or pending.startswith("\n")
+        or pending.startswith(("\n", "\t"))
         or chunk.startswith("\n")
         or (pending in ")]}" and chunk[0] in ").,;:!?…]}")
     )
@@ -126,7 +127,7 @@ def continuation(previous, fragment):
         return fragment
     if previous.endswith((".", "?", "!", "\n")):
         fragment = re.sub(r"^(\W*)(\w)", lambda m: m[1] + m[2].upper(), fragment, count=1)
-    if previous[-1] in " \t\n([{" or fragment[0] in "\n.,;:!?…)]}":
+    if previous[-1] in " \t\n([{" or fragment[0] in "\n\t.,;:!?…)]}":
         return fragment
     return " " + fragment
 

@@ -40,8 +40,7 @@ def later(fn):
 
 def begin():
     global connection, owner
-    assert not app.window.get_visible()
-    app.window.connect("map", lambda *_: maps.append(True))
+    assert not app.get_windows()
     connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 
     def register(conn, sender, path, iface, method, args, invocation):
@@ -85,9 +84,9 @@ def registered():
     def got(conn, result):
         try:
             revision, layout = conn.call_finish(result).unpack()
-            assert layout[0] == 0 and len(layout[2]) == 5, layout
+            assert layout[0] == 0 and len(layout[2]) == 10, layout
             labels = [node[1]["label"] for node in layout[2]]
-            assert "Show DictaDesk" in labels and "Quit" in labels
+            assert "Last Transcript…" in labels and "Quit" in labels
             later(open_preferences)
         except Exception as exc:
             errors.append(exc)
@@ -139,7 +138,7 @@ def preferences_open():
     p = app.preferences_dialog
     assert p and p.dialog.get_mapped()
     assert p.dialog.get_transient_for() is None
-    assert not app.window.get_visible() and not maps
+    assert not hasattr(app, "window") and not maps
     monitor = p.dialog.get_display().get_monitor_at_surface(p.dialog.get_surface())
     assert p.dialog.get_height() <= monitor.get_geometry().height - 96
     app.tray.event(4, "clicked")
@@ -150,40 +149,27 @@ def preferences_open():
 
 def preferences_closed():
     assert app.preferences_dialog is None
-    assert not app.window.get_visible() and not maps
-    app.tray.event(1, "clicked")
-    assert app.window.get_visible()
-    app.tray.event(4, "clicked")
-    later(preferences_from_visible)
-
-
-def preferences_from_visible():
-    p = app.preferences_dialog
-    assert p.dialog.get_mapped() and p.dialog.get_transient_for() is app.window
-    p.dialog.close()
-    assert app.window.get_visible()
-    app.window.set_visible(False)
+    assert not hasattr(app, "window") and not maps
     app.tray.event(4, "clicked")
     later(save_hidden_preferences)
 
 
 def save_hidden_preferences():
     p = app.preferences_dialog
-    assert p.dialog.get_mapped() and not app.window.get_visible()
+    assert p.dialog.get_mapped() and not hasattr(app, "window")
     with patch.object(
         app, "save_preferences", side_effect=lambda prefs, key, close: close()
     ) as saved:
         p.save_clicked()
         saved.assert_called_once()
     assert app.preferences_dialog is None
-    assert not app.window.get_visible()
+    assert not hasattr(app, "window")
     later(lose_host)
 
 
 def lose_host():
     global host
-    app.window.set_visible(False)
-    assert not app.window.get_visible()
+    assert not app.get_windows()
     host = False
     connection.emit_signal(
         None,
@@ -197,9 +183,7 @@ def lose_host():
 
 def restored():
     assert not app.tray.ready
-    assert app.window.get_visible(), (
-        "Hidden window was not recovered after the panel disappeared"
-    )
+    assert not app.get_windows(), "Tray loss must not create a main window"
     Gio.bus_unown_name(owner)
     later(done)
 
@@ -207,7 +191,7 @@ def restored():
 def done():
     assert not app.tray.ready
     print(
-        "PASS tray registration, Preferences-only activation/close/save, visible-parent behavior, host-loss recovery and watcher loss"
+        "PASS tray registration, Preferences-only activation/close/save, host-loss tray-only behavior and watcher loss"
     )
     app.request_quit()
 

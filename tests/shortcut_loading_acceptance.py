@@ -3,7 +3,7 @@
 """Shortcut model warm-up decisions on an isolated GTK desktop; no recording."""
 
 import os
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 assert os.environ["HOME"].startswith("/tmp/dictadesk-test.")
 from dictadesk.ui.application import Application
@@ -38,6 +38,9 @@ def exercise():
     try:
         c = app.session
         app.keyboard = Keyboard()
+        app.destinations = Mock()
+        app.destinations.capture.side_effect = lambda **_: expected
+        app.destinations.focused_on.side_effect = lambda target: target == current
         c.microphone_problem = ""
 
         def loading():
@@ -49,7 +52,6 @@ def exercise():
             c.recognizer.loaded = False
             c.cancelled.clear()
             app.pending_start = None
-            app.target_lost = False
 
         def loaded():
             c.phase = "idle"
@@ -124,86 +126,6 @@ def exercise():
             continuous.assert_not_called()
             load.assert_called()
 
-        for continuous_mode in (False, True):
-            with (
-                patch.object(c, "load_available_model", side_effect=loading),
-                patch.object(c, "record_in_window") as record,
-                patch.object(c, "record_continuous") as continuous,
-            ):
-                reset()
-                app.refresh()
-                assert app.lookup_action("record").get_enabled()
-                app.record_from_button(continuous=continuous_mode)
-                assert app.pending_start and c.phase == "loading"
-                record.assert_not_called()
-                continuous.assert_not_called()
-                loaded()
-                record.assert_called_once_with(continuous=continuous_mode)
-                record.reset_mock()
-                continuous.reset_mock()
-                # A second press or Escape cancels the queued recording, not the load.
-                for cancel in (app.record_from_button, app.escape_pressed):
-                    reset()
-                    app.record_from_button(continuous=continuous_mode)
-                    cancel()
-                    loaded()
-                    record.assert_not_called()
-                    continuous.assert_not_called()
-                # Joining the startup load must not restart it.
-                reset()
-                c.phase = "loading"
-                app.record_from_button(continuous=continuous_mode)
-                assert app.pending_start
-                loaded()
-                record.assert_called_once_with(continuous=continuous_mode)
-                record.reset_mock()
-                continuous.reset_mock()
-                reset()
-                app.record_from_button(continuous=continuous_mode)
-                c.phase, c.notice = "idle", "Model load failed."
-                app.resume_pending_start()
-                assert not app.pending_start
-                record.assert_not_called()
-                continuous.assert_not_called()
-
-        reset()
-        with (
-            patch.object(c, "load_available_model") as missing,
-            patch.object(app, "show_preferences") as preferences,
-            patch.object(c, "record") as record,
-        ):
-            app.record_from_button()
-            missing.assert_called_once()
-            preferences.assert_called_once()
-            record.assert_not_called()
-            assert not app.pending_start
-            assert "download" in c.notice
-        for problem in ("microphone", "credentials"):
-            reset()
-            c.recognizer.loaded = True
-            c.microphone_problem = "Microphone unavailable" if problem == "microphone" else ""
-            c.preferences.backend = "openai" if problem == "credentials" else "local"
-            c.credential_available = False
-            with (
-                patch.object(app, "show_preferences") as preferences,
-                patch.object(c, "record") as record,
-            ):
-                app.record_from_button()
-                preferences.assert_called_once()
-                record.assert_not_called()
-        c.preferences.backend = "local"
-        c.microphone_problem = ""
-        reset()
-        c.pending_text = "Keep this text"
-        with (
-            patch.object(app, "show_transcript") as recover,
-            patch.object(c, "load_available_model") as load,
-        ):
-            app.record_from_button()
-            recover.assert_called_once()
-            load.assert_not_called()
-        c.pending_text = ""
-
         reset()
         with (
             patch.object(c, "load_available_model") as missing,
@@ -233,7 +155,6 @@ def exercise():
 with (
     patch("dictadesk.core.session.check"),
     patch("dictadesk.core.session.microphones", return_value=[]),
-    patch("dictadesk.ui.application.destination", side_effect=lambda _: current),
 ):
     GLib.timeout_add(100, exercise)
     app.run(["dictadesk-shortcut-loading-test"])

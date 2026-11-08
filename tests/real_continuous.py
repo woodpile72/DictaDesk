@@ -24,7 +24,6 @@ parser.add_argument(
     "--model", choices=["parakeet", "whisper-base", "whisper-tiny", "moonshine-tiny"]
 )
 parser.add_argument("--live", action="store_true")
-parser.add_argument("--window", action="store_true")
 parser.add_argument("--delivery-only", action="store_true", help="Check delivery independently of recognition accuracy; report text for review.")
 args = parser.parse_args()
 model_id = args.model or ("whisper-base" if args.whisper else "parakeet")
@@ -57,8 +56,7 @@ callbacks = queue.Queue()
 sent = []
 copied = []
 session = None
-in_window = args.window
-live = args.live or in_window
+live = args.live
 speech_finished = threading.Event()
 delivered_live = threading.Event()
 feed_errors = []
@@ -106,28 +104,10 @@ try:
         patch("sounddevice.RawInputStream", GeneratedInput),
     ):
 
-        def changed():
-            if (
-                in_window
-                and session.in_window
-                and session.inline_text
-                and not delivered_live.is_set()
-            ):
-                assert not copied, "Copied before recording finished"
-                assert not speech_finished.is_set(), "Draft waited for a pause"
-                assert not session.capture.stop.is_set(), "Draft waited for Stop"
-                delivered_live.set()
-
         session = Session(
             callbacks.put,
-            changed,
-            (lambda text, target: copied.append((text, target)))
-            if in_window
-            else (
-                lambda *_: (_ for _ in ()).throw(
-                    AssertionError("Unexpected whole-document paste")
-                )
-            ),
+            lambda: None,
+            lambda *_: (_ for _ in ()).throw(AssertionError("Unexpected whole-document paste")),
             SettingsStore(Path(scratch) / "settings"),
             worker,
         )
@@ -148,10 +128,7 @@ try:
             done(True)
 
         session.stream_delivered = deliver
-        if in_window:
-            session.record_in_window()
-        else:
-            session.record_continuous(target=object())
+        session.record_continuous(target=object())
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             try:
@@ -163,23 +140,17 @@ try:
         assert not session.thread.is_alive()
         assert not feed_errors, feed_errors
         assert delivered_live.is_set(), "No insertion during recording"
-        if in_window:
-            assert not sent
-            assert copied == [(session.result.text, None)]
-            assert session.inline_text == session.result.text
-        else:
-            assert "".join(sent) == session.result.text
+        assert "".join(sent) == session.result.text
         if not args.delivery_only:
             assert session.result.text.lower().count("microphone") == 2, session.result.text
             assert session.result.text.lower().count("message") == 2, session.result.text
         else:
             assert session.result.text.strip()
         assert not session.pending_text
-        if not in_window:
-            assert len(sent) >= 2
+        assert len(sent) >= 2
         assert not list(Path(scratch).rglob("*.wav"))
         print(
-            f"PASS real dictation: window={in_window}, live={live}, text BEFORE Stop, no duplicates, copy/paste behavior verified, temporary audio removed"
+            f"PASS real dictation: live={live}, text BEFORE Stop, no duplicates, copy/paste behavior verified, temporary audio removed"
         )
         print(session.result.text)
         if args.delivery_only:

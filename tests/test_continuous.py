@@ -304,17 +304,21 @@ class ContinuousSessionTests(unittest.TestCase):
         self.assertEqual(self.events, ["started", "stopped", "completed"])
         self.assertEqual(self.session.notice, "")
 
+    def test_dictation_does_not_recognize_or_execute_system_commands(self):
+        self.worker.replies = iter(["volume max", "lock screen", "suspend computer"])
+        with patch("dictadesk.core.commands.recognize", side_effect=AssertionError("Commands must not run in dictation")):
+            self.session.record_continuous(target=object(), pause_mode=True)
+            self.drain()
+        self.assertIn("lock screen", self.session.result.text.lower())
+        self.assertEqual(self.session.last_dictation, self.session.result.text)
+
     def test_auto_stop_only_for_pause_shortcut_mode(self):
         self.session.preferences.silence_stop_seconds = 7
-        for pause_mode, in_window, expected in (
-            (True, False, 7),
-            (False, False, 0),
-            (True, True, 0),
-        ):
+        for pause_mode, expected in ((True, 7), (False, 0)):
             self.worker.replies = iter(["Hello", "world", "again"])
             with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):
                 self.session.record_continuous(
-                    target=object(), pause_mode=pause_mode, in_window=in_window
+                    target=object(), pause_mode=pause_mode
                 )
                 self.assertEqual(self.session.capture.silence_stop_seconds, expected)
                 self.drain()
@@ -356,20 +360,11 @@ class ContinuousSessionTests(unittest.TestCase):
         self.assertFalse(self.session.cancelled.is_set())
         self.assertEqual(self.events, ["started", "stopped", "completed"])
 
-    def test_window_collects_multiple_phrases_then_copies_once(self):
-        with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):
-            self.session.record_in_window()
-            self.drain()
-        self.assertEqual(self.sent, [])
-        self.assertEqual(self.full_deliveries, [("Hello, world. Next…", None)])
-        self.assertEqual(self.session.inline_text, "Hello, world. Next…")
-        self.assertFalse(self.session.pending_text)
-
-    def test_silent_window_recording_preserves_previous_result_without_copy(self):
+    def test_silent_recording_preserves_previous_result_without_copy(self):
         self.worker.replies = iter(["", "", ""])
         self.session.result.replace("Previous result", [])
         with patch("dictadesk.audio.continuous.IncrementalCapture", FakeCapture):
-            self.session.record_in_window()
+            self.session.record_continuous()
             self.drain()
         self.assertEqual(self.full_deliveries, [])
         self.assertEqual(self.session.result.text, "Previous result")

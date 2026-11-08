@@ -46,6 +46,20 @@ def transcribe(model, path, local_model):
         return result
 
 
+def transcribe_pcm(model, encoded):
+    import base64
+    import numpy as np
+
+    maximum = 8 * 16000 * 2
+    if not isinstance(encoded, str) or len(encoded) > 4 * ((maximum + 2) // 3):
+        raise ValueError("Command audio exceeds the in-memory limit.")
+    data = base64.b64decode(encoded, validate=True)
+    if not data or len(data) > maximum or len(data) % 2:
+        raise ValueError("Invalid command audio.")
+    samples = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768
+    return model.recognize(samples, sample_rate=16000)
+
+
 def cloud(request):
     from ..core.models import REMOTE_MODELS
 
@@ -213,6 +227,10 @@ def main():
                     result = cuda_capabilities()
                 elif request["op"] == "cloud":
                     result = {"text": cloud(request)}
+                elif request["op"] == "transcribe_pcm":
+                    if model is None:
+                        raise ValueError("Load the local model first.")
+                    result = {"text": transcribe_pcm(model, request["audio"])}
                 elif request["op"] == "transcribe":
                     if model is None:
                         raise ValueError("Load the local model first.")

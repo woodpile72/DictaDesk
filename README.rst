@@ -7,19 +7,19 @@ DictaDesk
 
 **Desktop Dictation for Linux**
 
-Speak into a text field using a keyboard shortcut, or record in DictaDesk and
-copy the result. Built with Python, GTK 4 and libadwaita, with a tray workflow
-for Cinnamon. Local transcription is the default.
+Dictate directly into text fields using a keyboard shortcut. DictaDesk runs in
+the system tray, with no main application window. Built with Python, GTK 4 and
+libadwaita for Cinnamon. Local transcription is the default.
 
-`Download DictaDesk 1.0.12 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.12/dictadesk_1.0.12_amd64.deb>`_
-· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.0.12>`_
+`Download DictaDesk 1.2.0 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.0/dictadesk_1.2.0_amd64.deb>`_
+· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.2.0>`_
 · `Report an issue <https://github.com/woodpile72/DictaDesk/issues>`_
 
-.. image:: media/screenshots/main-window.png
-   :alt: DictaDesk's main window with dictation instructions and Start Recording
+.. image:: media/screenshots/preferences-local.png
+   :alt: DictaDesk Preferences with compact usage instructions above the settings
    :width: 880
 
-Screenshots show the actual DictaDesk 1.0.12 interface in an isolated demonstration
+Screenshots show the actual DictaDesk 1.2.0 interface in an isolated demonstration
 profile, with simulated readiness and sample text. No personal transcripts or
 credentials are shown.
 
@@ -28,14 +28,15 @@ Install
 
 Developed and tested on **Linux Mint 22.3 Cinnamon, X11, x86-64 (amd64)**.
 Download the Debian package and
-`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.0.12/SHA256SUMS>`_
+`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.0/SHA256SUMS>`_
 into the same folder, then run::
 
     sha256sum --ignore-missing -c SHA256SUMS
-    sudo apt install ./dictadesk_1.0.12_amd64.deb
+    sudo apt install ./dictadesk_1.2.0_amd64.deb
 
 Check that the checksum reports ``OK``, then launch **DictaDesk** from your
-application menu. Open Preferences and download a local model before recording.
+application menu. Use the tray menu to open Preferences and download a local
+model before recording.
 The package includes its Python runtime dependencies; models download separately.
 It requires Python 3.12, GTK 4.14+ and libadwaita 1.5+. It uses the CPU and does
 not require an NVIDIA card. Quit the app before future upgrades.
@@ -55,7 +56,7 @@ Start dictating
 Short pauses show text without finalizing the sentence ending. By default,
 DictaDesk waits 4 seconds of silence to finalize it; stopping also finalizes it.
 Silence-based auto-stop applies only to the ordinary dictation shortcut;
-continuous mode and button recordings retain their existing stop controls.
+continuous mode continues until stopped.
 All three timings are adjustable under **Preferences → Dictation Timing**.
 Lower **Sentence Ending Pause** for shorter gaps between sentences, or raise it
 to allow longer thinking pauses. **Stop After Silence** accepts 1–600 seconds;
@@ -63,17 +64,23 @@ set it to **0 (Off)** to keep recording through quiet gaps. The separate
 maximum recording length still applies. Existing saved values are preserved.
 Explicit spoken punctuation is respected when that option is enabled. Recognition can still infer punctuation
 within a phrase. A few trailing words stay provisional so recognition can revise
-them when you continue. In-window drafts can change freely; text already inserted
-into another application is never automatically overwritten.
+them when you continue. Text already inserted into another application is never
+automatically overwritten.
 
-Shortcuts are configurable. If another application owns one, choose another in
-Preferences. **Start Recording** records into DictaDesk's own text area; finishing
-copies that transcript to the clipboard. Last Transcript provides recovery and
-manual copying if automatic insertion fails.
+Shortcuts are configurable in Preferences, which also shows the actual recording
+shortcut in its usage instructions. Click the tray icon for Preferences, or choose
+**Quit** from its context menu to exit. Closing Preferences returns to the tray.
+Optional **Start at Login** starts in the tray too. The microphone and
+recording/loading badges show its state.
 
-With a working tray, closing the window keeps DictaDesk running. Click the tray
-icon to reopen it, or choose **Quit** to exit. Optional **Start at Login** starts
-hidden in the tray. The microphone and recording/loading badges show its state.
+DictaDesk remembers the original X11 window and accessible editable field when
+recording starts, including its caret or selection. If you change focus, further
+text waits until you finish; DictaDesk then restores the original field, inserts
+the remaining text and tries to return you to the application you were using.
+If the original field disappears, its contents change, or it cannot be verified,
+text is retained in **Last Transcript** and on the clipboard. Use **Copy Uninserted
+Text** in the tray, or click the intended field and use the configured **Paste Last
+Transcript** shortcut. No text is automatically sent to the newly focused field.
 
 Local or remote
 ---------------
@@ -102,7 +109,6 @@ What it does
 
 * Dictation into other applications, with focus checks and recoverable text if
   insertion cannot continue safely.
-* In-window recording with live text and copy-on-finish.
 * Spoken punctuation, including parentheses, brackets, braces and “dot dot dot”.
 * Built-in DictaDesk name casing, plus a personal correction dictionary with
   an undo action. Personal rules take priority.
@@ -114,7 +120,11 @@ What it does
 Current scope
 -------------
 
-Global shortcuts and automatic insertion currently require **X11**. Wayland,
+Global shortcuts and automatic insertion currently require **X11**. Original-field
+restoration uses AT-SPI2 accessibility. Applications that do not expose a usable
+editable field (including some terminals, Electron apps and custom editors) use
+clipboard recovery. Password fields are excluded. Wayland uses clipboard recovery
+for tray recordings, without unsupported focus manipulation. Wayland,
 other desktops, other distributions and ARM machines have not been validated.
 GNOME needs a compatible tray extension for tray operation. Full screen-reader
 acceptance and a fresh installation on a second machine remain outstanding.
@@ -141,7 +151,7 @@ Source uses a ``src/dictadesk`` layout. Build and test instructions are in
 model weights, dependency wheels and local caches are not part of this repository.
 
 .. image:: media/screenshots/about.png
-   :alt: DictaDesk About screen with its microphone icon and version 1.0.12
+   :alt: DictaDesk About screen with its microphone icon and version 1.2.0
    :width: 880
 
 License and credits

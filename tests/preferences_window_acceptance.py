@@ -16,7 +16,6 @@ Adw.init()
 Gtk.Settings.get_default().set_property("gtk-enable-animations", False)
 app = Application(isolated=True)
 failures = []
-original_size = None
 
 
 def later(fn):
@@ -35,8 +34,7 @@ def later(fn):
 
 
 def start():
-    global original_size
-    original_size = (app.window.get_width(), app.window.get_height())
+    assert app.get_windows() == []
     app.show_preferences()
     later(check_window)
 
@@ -49,7 +47,7 @@ def check_window():
     assert p.dialog.get_height() <= geometry.height - 96
     if geometry.height >= 900:
         assert p.dialog.get_height() >= 800
-    assert (app.window.get_width(), app.window.get_height()) == original_size
+    assert not hasattr(app, "window")
     app.show_preferences()
     assert app.preferences_dialog is p, "Repeated activation opened another window"
     later(check_child)
@@ -61,7 +59,7 @@ children = iter(
         (app.remove_models, "Remove Downloaded Models?"),
         (lambda: app.confirm_download("int8"), "Download the Model Again?"),
         (
-            lambda: app.preferences_dialog.capture_shortcut("record_shortcut"),
+            lambda: app.preferences_dialog.capture_shortcut("shortcut"),
             "Press a Shortcut",
         ),
         (lambda: app.preferences_dialog.edit_rule(), "Vocabulary Entry"),
@@ -117,7 +115,7 @@ def escape():
 def after_escape():
     assert app.preferences_dialog is None
     assert app.session.preferences.backend == "local"
-    assert (app.window.get_width(), app.window.get_height()) == original_size
+    assert not hasattr(app, "window")
     app.show_preferences()
     p = app.preferences_dialog
     assert p.controls["backend"][0].get_selected() == 0
@@ -145,7 +143,7 @@ def after_escape():
         saved.assert_called_once()
     assert app.preferences_dialog is None
     print(
-        "PASS Preferences: display bounds, unchanged parent, nested dialogs, Escape discards, Save closes"
+        "PASS Preferences: display bounds, tray-only lifecycle, nested dialogs, Escape discards, Save closes"
     )
     app.request_quit()
 

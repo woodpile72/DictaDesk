@@ -2,6 +2,7 @@
 """Installed-package launch check; use a private HOME, bus, display and model cache."""
 
 import os
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -18,9 +19,13 @@ from Xlib.ext import xtest  # noqa: E402
 import onnxruntime  # noqa: E402
 import moonshine_voice  # noqa: E402, F401
 
-assert __version__ == "1.0.12"
+assert __version__ == os.environ.get("DICTADESK_EXPECT_VERSION", "1.2.0")
 assert onnxruntime.get_available_providers()
-assert SettingsStore().read().local_model == "parakeet"
+defaults = SettingsStore().read()
+assert defaults.local_model == "parakeet"
+assert not defaults.hands_free and defaults.wake_phrase == "Clanker"
+assert defaults.command_sound
+assert Path("/usr/lib/dictadesk/dictadesk/resources/dictadesk-panel-wake-color.svg").is_file()
 assert str(model_directory(create=True)).startswith("/var/cache/dictadesk/")
 bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 app_path = "/" + APP_ID.replace(".", "/")
@@ -63,6 +68,12 @@ try:
         time.sleep(0.1)
     assert owns()
     connection = display.Display()
+    assert not any(
+        w.get_wm_class()
+        and any("dictadesk" in c.lower() for c in w.get_wm_class())
+        and w.get_attributes().map_state == X.IsViewable
+        for w in connection.screen().root.query_tree().children
+    ), "Startup displayed a window"
     action("preferences")
     time.sleep(0.5)
     mapped = [
@@ -96,7 +107,7 @@ try:
         and any("dictadesk" in c.lower() for c in w.get_wm_class())
         and w.get_attributes().map_state == X.IsViewable
     ]
-    assert visible, "Packaged main window did not map"
+    assert len(visible) == 1 and visible[0].get_wm_name() == "Preferences"
     action("about")
     time.sleep(0.3)
     action("preferences")
@@ -108,6 +119,12 @@ try:
     ]
     assert len(preferences) == 1, "Preferences did not open its own window"
     assert preferences[0].get_geometry().height >= 800
+    action("usage")
+    time.sleep(0.5)
+    assert any(
+        w.get_wm_name() == "Usage & Commands" and w.get_attributes().map_state == X.IsViewable
+        for w in connection.screen().root.query_tree().children
+    )
     tooltip = bus.call_sync(
         APP_ID,
         "/StatusNotifierItem",
@@ -126,7 +143,7 @@ try:
     assert not owns()
     assert not list(model_directory().rglob("*.onnx"))
     print(
-        "PASS installed 1.0.12: runtime imports, main window, About, Preferences, tray and clean shutdown"
+        "PASS installed 1.2.0: runtime imports, tray-only startup, About, Preferences, reference window, tray and clean shutdown"
     )
 finally:
     if process.poll() is None:

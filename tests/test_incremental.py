@@ -92,8 +92,6 @@ class IncrementalSessionTests(unittest.TestCase):
         replies,
         deliver=True,
         cancel_after_insert=False,
-        in_window=False,
-        cancel_draft=False,
         pause_updates=False,
         pause_mode=False,
         spoken_punctuation=False,
@@ -136,18 +134,12 @@ class IncrementalSessionTests(unittest.TestCase):
             callbacks, sent, previews, copied = queue.Queue(), [], [], []
 
             def changed():
-                previews.append(session.inline_text if in_window else session.preview)
-                if in_window and session.in_window:
-                    self.assertFalse(copied, "Clipboard changed during recording")
-                    if cancel_draft and session.inline_text and session.phase != "cancelling":
-                        session.cancel()
+                previews.append(session.preview)
 
             session = Session(
                 callbacks.put,
                 changed,
-                (lambda text, target: copied.append((text, target)))
-                if in_window
-                else (lambda *_: self.fail("Whole transcript delivery")),
+                lambda text, target: copied.append((text, target)),
                 SettingsStore(Path(folder) / "settings"),
                 Recognizer(),
             )
@@ -162,10 +154,7 @@ class IncrementalSessionTests(unittest.TestCase):
                     session.cancel()
 
             session.stream_delivered = inserted
-            if in_window:
-                session.record_in_window()
-            else:
-                session.record_continuous(target=object(), pause_mode=pause_mode)
+            session.record_continuous(target=object(), pause_mode=pause_mode)
             for _ in range(100):
                 try:
                     callbacks.get(timeout=0.05)()
@@ -175,10 +164,6 @@ class IncrementalSessionTests(unittest.TestCase):
                     break
             self.assertFalse(session.thread.is_alive())
             self.assertEqual(list(Path(folder).rglob("*.wav")), [])
-            if in_window:
-                self.assertEqual(sent, [])
-                self.assertEqual(copied, [] if cancel_draft else [(session.result.text, None)])
-                self.assertFalse(session.pending_text)
             return session, sent, previews
 
     def test_thinking_pause_does_not_insert_period_or_duplicate_text(self):
@@ -258,21 +243,3 @@ class IncrementalSessionTests(unittest.TestCase):
         self.assertEqual(sent, ["One two three"])
         self.assertEqual(c.result.text, "One two three")
         self.assertFalse(c.preview)
-
-    def test_window_draft_can_revise_without_inserting_and_copies_once_at_finish(self):
-        c, sent, drafts = self.run_session(
-            ["The cat sat on the mat", "The cat sat on the mat", "The dog sat on the mat."],
-            in_window=True,
-        )
-        self.assertIn("The cat sat on the mat", drafts)
-        self.assertEqual(c.inline_text, "The dog sat on the mat.")
-        self.assertEqual(c.result.text, c.inline_text)
-        self.assertNotIn("Review Last Transcript", c.notice)
-        self.assertFalse(c.in_window)
-
-    def test_window_cancel_does_not_copy_partial_text(self):
-        c, sent, drafts = self.run_session(
-            ["A changing draft", "A finished sentence."], in_window=True, cancel_draft=True
-        )
-        self.assertIn("A changing draft", drafts)
-        self.assertFalse(c.in_window)

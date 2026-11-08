@@ -152,18 +152,13 @@ class Tray:
         self.set_ready(False)
 
     def set_ready(self, ready):
-        was = self.ready
         self.ready = ready
-        if (
-            was
-            and not ready
-            and self.app.window
-            and not self.app.window.get_visible()
-            and not self.app.shutting_down
-        ):
-            self.app.window.present()
 
     def icon(self):
+        if self.state == "wake":
+            # Keep the blue badge colored: symbolic recoloring only supports
+            # the host's success/warning/error palette.
+            return "dictadesk-panel-wake-color"
         suffix = "-symbolic" if self.symbolic else "-color"
         state = "recording" if self.state == "listening" else self.state
         return "dictadesk-panel-" + state + suffix
@@ -209,13 +204,13 @@ class Tray:
 
     def item_call(self, connection, sender, path, interface, method, args, invocation):
         if method in ("Activate", "SecondaryActivate"):
-            self.app.present_main()
+            self.app.show_preferences()
         invocation.return_value(None)
 
     def rows(self):
         c = self.app.session
         return {
-            1: ("Show DictaDesk", "show", True),
+            1: ("Last Transcript…", "transcript", bool(c.result.text or c.pending_text)),
             2: (
                 "Stop Recording" if c.phase == "listening" else "Start Recording",
                 "record",
@@ -223,6 +218,24 @@ class Tray:
             ),
             3: ("Cancel", "cancel", c.busy),
             4: ("Preferences", "preferences", not c.busy),
+            6: (
+                "Disable Hands-free Commands"
+                if self.app.handsfree and self.app.handsfree.enabled
+                else "Enable Hands-free Commands",
+                "hands-free",
+                c.preferences.backend == "local"
+                and (not c.busy or (self.app.handsfree and self.app.handsfree.enabled)),
+            ),
+            7: ("Copy Uninserted Text", "copy-pending", bool(c.pending_text) and not c.busy),
+            8: ("About DictaDesk", "about", True),
+            9: ("Usage & Commands…", "usage", True),
+            10: (
+                "Resume Voice Commands Now"
+                if self.app.handsfree and self.app.handsfree.paused
+                else "Pause Voice Commands for 30 Minutes",
+                "pause-commands",
+                bool(self.app.handsfree and self.app.handsfree.enabled and not c.busy),
+            ),
             5: ("Quit", "quit", True),
         }
 
@@ -233,7 +246,9 @@ class Tray:
         return {
             "label": GLib.Variant("s", label),
             "enabled": GLib.Variant("b", enabled),
-            "visible": GLib.Variant("b", True),
+            "visible": GLib.Variant(
+                "b", ident not in (6, 10) or self.app.session.preferences.backend == "local"
+            ),
         }
 
     def event(self, ident, event):

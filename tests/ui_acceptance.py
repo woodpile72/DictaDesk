@@ -45,95 +45,9 @@ def shot(name):
 
 
 def start():
-    c, w = app.session, app.window
-    assert c.state == "Setup needed"
-    assert w.microphone.get_icon_name() == "dialog-warning-symbolic"
-    assert w.microphone.has_css_class("warning")
-    assert app.lookup_action("record").get_enabled()
-    assert not hasattr(w, "load") and not hasattr(w, "repair")
-    assert w.transcript_dialog.get_root() is None
-    assert not w.inline_panel.get_visible()
-    shot("setup")
-    c.microphone_problem = ""
-    installed = patch("dictadesk.core.session.downloaded", return_value=True)
-    installed.start()
-    app.refresh()
-    assert c.state == "Standby" and w.heading.get_label() == "Standby"
-    assert w.microphone.get_icon_name() == "audio-input-microphone-symbolic"
-    assert w.microphone.has_css_class("dim-label")
-    assert app.lookup_action("record").get_enabled()
-
-    def standby():
-        try:
-            shot("standby")
-        finally:
-            installed.stop()
-        loading()
-
-    later(standby)
-
-
-def loading():
-    c, w = app.session, app.window
-    c.phase = "loading"
-    c.notice = ""
-    app.refresh()
-    assert w.heading.get_label() == "Loading"
-    assert w.spinner.get_spinning() and not hasattr(w, "cancel")
-    assert w.indicator.get_visible_child_name() == "spinner"
-    later(ready)
-
-
-def ready():
-    c, w = app.session, app.window
-    c.phase = "idle"
-    c.microphone_problem = ""
-    c.recognizer.loaded = True
-    app.refresh()
-    assert c.state == "Ready" and app.lookup_action("record").get_enabled()
-    assert w.indicator.get_visible_child_name() == "icon"
-    assert not w.microphone.has_css_class("dim-label")
-    assert not w.recording_dot.get_visible()
-    assert not hasattr(w, "load")
-    assert w.instruction.get_next_sibling() is w.mouse
-    assert w.mouse.get_next_sibling() is w.buttons
-    assert not hasattr(w, "detail")
-    assert w.instruction.get_text().startswith("Dictate anywhere:")
-    assert w.mouse.get_text().startswith("Dictate here:")
-    c.notice = "No speech was recognized."
-    app.refresh()
-    assert w.mouse.get_next_sibling() is w.buttons
-    c.notice = ""
-    previous_shortcut = c.preferences.shortcut
-    c.preferences.shortcut = "<Super>m"
-    app.refresh()
-    assert "Super+M" in w.instruction.get_text() and "Super+V" not in w.instruction.get_text()
-    c.preferences.shortcut = previous_shortcut
-    app.refresh()
-    c.result.replace("This is dictadesk speaking.", [["dictadesk", "DictaDesk"]])
-    app.refresh()
-    assert w.stack.get_visible_child_name() == "text"
-    assert w.menu.get_n_items() == 2
-    later(result)
-
-
-def result():
-    shot("main-window")
-    app.activate_action("transcript", None)
-    later(transcript)
-
-
-def transcript():
-    assert app.window.transcript_dialog.get_mapped()
-    c = app.session
-    shot("last-transcript")
-    app.activate_action("undo", None)
-    assert c.result.text == "This is dictadesk speaking."
-    app.activate_action("undo", None)
-    assert "DictaDesk" in c.result.text
-    app.activate_action("copy", None)
-    assert c.notice == "Transcript copied."
-    app.window.transcript_dialog.close()
+    assert not app.get_windows()
+    app.session.microphone_problem = ""
+    app.session.recognizer.loaded = True
     app.show_preferences()
     later(preferences)
 
@@ -148,9 +62,9 @@ def preferences():
     assert "thinking pauses" in p.controls["sentence_pause_seconds"].get_subtitle()
     assert "without ending the sentence" in p.controls["pause_seconds"].get_subtitle()
     assert p.dialog.get_visible()
-    assert p.dialog.get_resizable() and p.dialog.get_transient_for() is app.window
+    assert p.dialog.get_resizable() and p.dialog.get_transient_for() is None
     assert p.dialog.get_height() >= 800
-    assert app.window.get_height() < 500, "Preferences resized its parent"
+    assert not hasattr(app, "window")
     assert p.local_group.get_visible() and not p.remote_group.get_visible()
     assert p.download_button.get_sensitive()
     assert "640 MiB" in p.download_row.get_subtitle()
@@ -245,94 +159,15 @@ def remote_preferences():
     assert p.rules == [["code x", "Codex"]]
     p.dialog.close()
     assert not app.session.preferences.vocabulary
-    c = app.session
-    c.notice = ""
-    c.phase = "listening"
-    app.refresh()
-    assert app.window.record.get_label() == "Stop Recording"
-    assert not hasattr(app.window, "cancel")
-    later(listening)
-
-
-def listening():
-    assert app.window.recording_dot.get_visible()
-    assert not app.window.spinner.get_spinning()
-    shot("listening")
-    app.window.show_inline_transcript()
-    app.session.in_window = True
-    app.session.inline_text = "This is the draft appearing while I speak."
-    app.refresh()
-    assert app.window.inline_panel.get_visible()
-    assert app.window.record.get_label() == "Stop Recording"
-    later(inline_listening)
-
-
-def inline_listening():
-    shot("button-dictation")
-    assert app.window.get_height() >= 700
-    app.session.in_window = False
-    app.session.phase = "idle"
-    app.session.notice = "Transcript copied."
-    app.refresh()
-    assert app.window.inline_status.get_text() == "Copied to clipboard"
-    assert app.window.inline_panel.get_visible()
-    later(inline_complete)
-
-
-def inline_complete():
-    shot("button-dictation-complete")
-    app.window.hide_inline_transcript()
-    assert not app.window.inline_panel.get_visible()
-    app.session.phase = "listening"
-    app.session.continuous = True
-    app.session.preview = "the ending can still change while I speak"
-    app.session.result.replace("This text has already been inserted.", [])
-    app.refresh()
-    assert "Escape" in app.window.instruction.get_text()
-    assert app.window.preview.get_visible()
-    later(live_preview)
-
-
-def live_preview():
-    shot("live-preview")
-    app.session.continuous = False
-    app.session.preview = ""
-    app.session.phase = "transcribing"
-    app.refresh()
-    assert app.window.heading.get_label() == "Transcribing"
-    assert not app.lookup_action("record").get_enabled()
-    later(processing)
-
-
-def processing():
-    shot("transcribing")
-    app.session.phase = "cancelling"
-    app.refresh()
-    assert not app.lookup_action("cancel").get_enabled()
-    assert app.session.result.text
-    app.session.phase = "idle"
-    app.session.notice = "Cancelled. Nothing was inserted."
-    app.window.set_default_size(360, 740)
-    Gtk.Settings.get_default().set_property("gtk-font-name", "Sans 18")
-    app.refresh()
-    later(narrow)
-
-
-def narrow():
-    w = app.window
-    assert w.get_width() <= 370, w.get_width()
-    assert w.content.measure(Gtk.Orientation.HORIZONTAL, -1)[0] <= w.get_width()
-    w.record.grab_focus()
-    assert w.get_focus()
-    shot("narrow-large-text")
     app.show_preferences()
     app.preferences_dialog.dialog.set_default_size(360, 740)
+    Gtk.Settings.get_default().set_property("gtk-font-name", "Sans 18")
     later(narrow_preferences)
 
 
 def narrow_preferences():
     p = app.preferences_dialog
-    assert p.dialog.get_width() <= app.window.get_width()
+    assert p.dialog.get_width() <= 370
     assert (
         p.dialog.get_content().measure(Gtk.Orientation.HORIZONTAL, -1)[0]
         <= p.dialog.get_width()
@@ -366,9 +201,9 @@ def narrow_remote():
 
 
 def done():
-    shot("about")
+    assert any(isinstance(w, Adw.AboutWindow) for w in app.get_windows())
     print(
-        "PASS GTK: setup, model loading, readiness, transcript, vocabulary undo, Preferences Cancel, recording, processing, cancellation, narrow/large text, About"
+        "PASS GTK: tray-only startup, Preferences/model controls, vocabulary undo, Cancel, narrow/large text, About"
     )
     app.request_quit()
 

@@ -25,6 +25,11 @@ def directory(kind):
 @dataclass
 class Preferences:
     backend: str = "local"
+    hands_free: bool = False
+    wake_phrase: str = "Clanker"
+    command_sound: bool = True
+    volume_step: int = 5
+    brightness_step: int = 5
     local_model: str = "parakeet"
     shortcut: str = "<Super>v"
     continuous_shortcut: str = "<Super><Shift>v"
@@ -54,6 +59,14 @@ class Preferences:
     def validate(self):
         if self.backend not in ("local", "openai"):
             raise ValueError("Choose a supported backend.")
+        from .voice_commands import words
+
+        if (
+            not isinstance(self.wake_phrase, str)
+            or not 1 <= len(words(self.wake_phrase)) <= 12
+            or len(self.wake_phrase) > 120
+        ):
+            raise ValueError("Enter a wake phrase of 1–12 words (up to 120 characters).")
         from .models import LOCAL_MODELS, REMOTE_MODELS
 
         if self.local_model not in LOCAL_MODELS:
@@ -90,6 +103,8 @@ class Preferences:
         ):
             raise ValueError("Use a language code such as en or de.")
         for name in (
+            "hands_free",
+            "command_sound",
             "auto_paste",
             "symbolic",
             "autostart",
@@ -100,6 +115,8 @@ class Preferences:
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"Invalid {name} setting.")
         for name, low, high in (
+            ("volume_step", 1, 100),
+            ("brightness_step", 1, 100),
             ("idle_seconds", 0, 86400),
             ("max_seconds", 1, 600),
             ("silence_stop_seconds", 0, 600),

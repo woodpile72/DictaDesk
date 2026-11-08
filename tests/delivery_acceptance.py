@@ -9,11 +9,13 @@ assert os.environ["HOME"].startswith("/tmp/dictadesk-test.")
 from dictadesk.ui.application import Application
 from dictadesk.ui.gtk import GLib
 from dictadesk.desktop.delivery import Destination
+from dictadesk.desktop.destination import Target
+from destination_mock import Tracker
 
 app = Application(isolated=True)
 errors = []
-expected = Destination(100, 101, 200)
-current = expected
+tracker = Tracker()
+expected = tracker.current
 
 
 class Keyboard:
@@ -46,16 +48,16 @@ def later(fn):
             app.request_quit()
         return False
 
-    GLib.timeout_add(250, call)
+    GLib.timeout_add(500, call)
 
 
 def begin():
     c = app.session
     app.keyboard = Keyboard()
+    app.destinations = tracker
     c.recognizer.loaded = True
     c.microphone_problem = ""
     c.result.replace("Keep this transcript.", [])
-    app.target = expected
     app.deliver(c.result.text, expected)
     c.cancel()
     later(cancelled)
@@ -70,22 +72,22 @@ def cancelled():
 
 
 def retry():
-    global current
     send.assert_called_once()
     assert not app.session.busy
     send.reset_mock()
     app.key_pressed("paste")
-    current = Destination(300, 301, 400)
+    tracker.current = Target(Destination(300, 301, 400))
+    expected.invalid = True
     later(moved)
 
 
 def moved():
-    global current
     send.assert_not_called()
     assert not app.session.busy
-    assert "Destination changed" in app.session.notice
-    current = expected
-    app.target_lost = False
+    assert "failed" in app.session.notice
+    assert app.session.pending_text == "Keep this transcript."
+    tracker.current = expected
+    expected.invalid = False
     app.keyboard.modifiers = True
     app.key_pressed("paste")
     later(held)
@@ -120,7 +122,7 @@ def failed():
 with (
     patch("dictadesk.core.session.check"),
     patch("dictadesk.core.session.microphones", return_value=[]),
-    patch("dictadesk.ui.application.destination", side_effect=lambda _: current),
+    patch("dictadesk.ui.application.destination", side_effect=lambda _: tracker.current.window),
     patch("dictadesk.ui.application.paste", return_value=True) as send,
 ):
     later(begin)

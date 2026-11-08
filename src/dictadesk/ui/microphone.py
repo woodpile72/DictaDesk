@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 from .gtk import Adw, Gtk
-from .window import text
+from .widgets import text
 
 
 class MicrophoneDialog:

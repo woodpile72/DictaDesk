@@ -1,0 +1,338 @@
+# SPDX-License-Identifier: GPL-3.0-only
+"""Local-only hands-free coordinator; epochs invalidate every deferred action."""
+
+import base64
+from dataclasses import replace
+import threading
+import time
+from datetime import datetime, timedelta
+
+from ..audio.handsfree import MemoryInput, acknowledge, utterance
+from .voice_commands import wake_matches, command, choice_number
+
+
+class HandsFree:
+    def __init__(
+        self,
+        session,
+        changed,
+        launch,
+        feedback,
+        *,
+        desktop_action=None,
+        capture_destination=None,
+        source=MemoryInput,
+        beep=acknowledge,
+    ):
+        self.session = session
+        self.changed, self.launch, self.feedback = changed, launch, feedback
+        self.source, self.beep = source, beep
+        self.desktop_action = desktop_action
+        self.capture_destination = capture_destination
+        self.activation_target = None
+        self.pause_until = 0
+        self.generation = 0
+        self.state = "off"
+        self.problem = ""
+        self.thread = None
+        self.stop = threading.Event()
+        self.finished = threading.Event()
+        self.signature = None
+        self.failed = False
+        self.resume_at = 0
+        self.recognitions = 0
+        self.override_disabled = False
+        self.choice = None
+
+    @property
+    def paused(self):
+        return bool(self.pause_until and time.monotonic() < self.pause_until)
+
+    def pause(self, minutes=30):
+        if type(minutes) is not int or not 1 <= minutes <= 240:
+            raise ValueError("Pause voice commands for 1–240 minutes.")
+        self.suspend()
+        self.pause_until = time.monotonic() + minutes * 60
+        self.state = "paused"
+        until = (datetime.now() + timedelta(minutes=minutes)).strftime("%H:%M")
+        self.problem = f"Voice commands paused until {until}. Use Resume Voice Commands Now in the tray to resume sooner."
+        self.changed()
+
+    def resume(self):
+        self.suspend()
+        self.pause_until = 0
+        self.resume_at = 0
+        self.problem = ""
+        self.changed()
+
+    @property
+    def enabled(self):
+        p = self.session.preferences
+        return p.backend == "local" and p.hands_free and not self.override_disabled
+
+    def valid(self, generation):
+        return (
+            generation == self.generation
+            and self.enabled
+            and not self.paused
+            and not getattr(self.session, "desktop_blocked", False)
+            and not self.stop.is_set()
+            and not self.session.busy
+            and not self.session.closing
+        )
+
+    def suspend(self):
+        if self.choice:
+            self.choice[2].set()
+        self.choice = None
+        if not self.stop.is_set():
+            self.generation += 1
+            self.stop.set()
+            self.finished.set()
+        self.state = "off"
+        self.resume_at = time.monotonic() + 1
+
+    def join(self):
+        thread = self.thread
+        if thread and thread is not threading.current_thread():
+            thread.join()
+
+    def cancel(self):
+        self.suspend()
+        self.changed()
+
+    def complete(self, generation):
+        if self.valid(generation):
+            # Retire the activation as well as its audio: a delayed chooser
+            # signal must never be usable by the next command.
+            self.suspend()
+            self.changed()
+
+    def publish(self, generation, state):
+        def update():
+            if self.valid(generation):
+                self.state = state
+                self.changed()
+
+        self.session.dispatch(update)
+
+    def offer_choices(self, generation, handler):
+        if self.valid(generation):
+            # A new identity also invalidates recognition from the previous page.
+            if self.choice:
+                self.choice[2].set()
+            self.choice = (generation, handler, threading.Event())
+            self.changed()
+
+    def await_action(self, generation, stop, prefs):
+        page, deadline = None, 0
+        while self.valid(generation) and not self.finished.is_set():
+            choice = self.choice
+            if choice is None:
+                stop.wait(0.1)
+                continue
+            if choice is not page:
+                page, deadline = choice, time.monotonic() + 20
+            with self.source(prefs) as source:
+                data = utterance(
+                    source, choice[2], threshold=prefs.silence_threshold, deadline=deadline
+                )
+            if not self.valid(generation) or self.choice is not choice:
+                continue
+            if not data and time.monotonic() < deadline:
+                continue
+            text = self.recognize(data, generation, stop)
+            reply = choice_number(text) if data else "timeout"
+            delivered = threading.Event()
+
+            def select(choice=choice, text=text, reply=reply, delivered=delivered):
+                try:
+                    if self.valid(generation) and self.choice is choice:
+                        choice[1](reply, text)
+                finally:
+                    delivered.set()
+
+            self.session.dispatch(select)
+            while self.valid(generation) and not delivered.wait(0.1):
+                pass
+
+    def tick(self):
+        p = self.session.preferences
+        signature = (
+            p.backend,
+            p.hands_free,
+            p.wake_phrase,
+            p.command_sound,
+            p.local_model,
+            p.quantization,
+            p.device,
+            p.microphone,
+            p.host_api,
+            p.silence_threshold,
+        )
+        if signature != self.signature:
+            self.suspend()
+            self.signature, self.failed = signature, False
+            if not self.paused:
+                self.problem = ""
+        if getattr(self.session, "desktop_blocked", False):
+            self.suspend()
+            self.state = "paused"
+            self.problem = self.session.desktop_reason
+            return
+        if not self.enabled or self.session.busy or self.session.closing:
+            if not self.stop.is_set():
+                self.suspend()
+            return
+        if self.paused:
+            self.state = "paused"
+            return
+        if self.pause_until:
+            self.pause_until = 0
+            self.resume_at = 0
+            self.problem = ""
+        if self.thread and self.thread.is_alive():
+            return
+        if self.failed or time.monotonic() < self.resume_at:
+            return
+        if self.session.microphone_problem or self.session.store.problem:
+            self.state, self.problem = (
+                "unavailable",
+                self.session.microphone_problem or self.session.store.problem,
+            )
+            return
+        if not self.session.recognizer.loaded:
+            self.state = "loading"
+            if not self.session.problem:
+                self.session.load_available_model()
+            if not self.session.busy:
+                self.state = "unavailable"
+                self.problem = "Download and load a local model to use hands-free commands."
+            return
+        self.problem = ""
+        self.generation += 1
+        generation = self.generation
+        self.stop, self.finished = threading.Event(), threading.Event()
+        stop = self.stop
+        prefs = replace(p)
+        self.thread = threading.Thread(
+            target=self.run, args=(generation, stop, prefs), daemon=True
+        )
+        self.thread.start()
+
+    def recognize(self, data, generation, stop):
+        if not data or not self.valid(generation):
+            return ""
+        self.recognitions += 1
+        # Let an in-flight local inference finish before yielding the shared model.
+        # Its result is discarded on suspension; cancellation never unloads it.
+        reply = self.session.recognizer.request(
+            {"op": "transcribe_pcm", "audio": base64.b64encode(data).decode("ascii")},
+            threading.Event(),
+            timeout=15,
+        )
+        return reply.get("text", "") if self.valid(generation) and not stop.is_set() else ""
+
+    def run(self, generation, stop, prefs):
+        try:
+            while self.valid(generation):
+                # Open a fresh stream only after own sounds have finished.
+                with self.source(prefs) as source:
+                    self.publish(generation, "wake")
+                    data = utterance(
+                        source,
+                        stop,
+                        threshold=prefs.silence_threshold,
+                        deadline=float("inf"),
+                        require_quiet=True,
+                        max_seconds=6,
+                    )
+                # Close capture before inference. Disable/dictation never waits
+                # for a model result to release the microphone.
+                if not self.valid(generation):
+                    return
+                self.publish(generation, "processing")
+                text = self.recognize(data, generation, stop)
+                if not self.valid(generation):
+                    return
+                if not wake_matches(text, prefs.wake_phrase):
+                    continue
+                if self.capture_destination:
+                    captured = threading.Event()
+
+                    def remember():
+                        self.activation_target = None
+                        try:
+                            if self.valid(generation):
+                                self.activation_target = self.capture_destination()
+                        except Exception:
+                            pass  # Commands with a target will fail safely.
+                        finally:
+                            captured.set()
+
+                    self.session.dispatch(remember)
+                    while self.valid(generation) and not captured.wait(0.05):
+                        pass
+                    if not self.valid(generation):
+                        return
+                self.publish(generation, "command")
+                if prefs.command_sound:
+                    try:
+                        self.beep(stop)
+                    except Exception:
+                        pass  # Missing sound output must not disable voice commands.
+                if stop.wait(0.4):
+                    return
+                deadline = time.monotonic() + 8
+                with self.source(prefs) as source:
+                    data = utterance(
+                        source,
+                        stop,
+                        threshold=prefs.silence_threshold,
+                        deadline=deadline,
+                        require_quiet=True,
+                    )
+                text = self.recognize(data, generation, stop)
+                if not self.valid(generation):
+                    return
+                kind, query = command(text, prefs)
+                if kind != "cancel":
+                    self.finished.clear()
+
+                    def deliver(kind=kind, query=query, text=text):
+                        if not self.valid(generation):
+                            return
+                        try:
+                            if kind == "open":
+                                self.launch(query, generation, heard=text)
+                            elif kind != "unknown" and self.desktop_action:
+                                self.desktop_action(kind, query, generation, heard=text)
+                            else:
+                                self.feedback(
+                                    "Command not recognized. See Usage & Commands for supported phrases."
+                                    if text
+                                    else "No command heard. Try again after the beep.",
+                                    heard=text,
+                                )
+                                self.complete(generation)
+                        except Exception:
+                            # Desktop integration failure cannot leave the listener
+                            # stuck waiting for an action that was never presented.
+                            self.complete(generation)
+
+                    self.session.dispatch(deliver)
+                    self.await_action(generation, stop, prefs)
+                # Discard all audio during feedback and allow its sound to decay.
+                if stop.wait(1):
+                    return
+        except Exception:
+
+            def fail():
+                if self.valid(generation):
+                    self.suspend()
+                    self.failed = True
+                    self.state = "unavailable"
+                    self.problem = "Hands-free listening stopped. Check the microphone and local model, then toggle it to retry."
+                    self.changed()
+
+            self.session.dispatch(fail)

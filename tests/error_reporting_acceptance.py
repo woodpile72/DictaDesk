@@ -72,7 +72,7 @@ def shot(name):
         while GLib.MainContext.default().pending():
             GLib.MainContext.default().iteration(False)
         time.sleep(0.005)
-    xid = GdkX11.X11Surface.get_xid(app.window.get_surface())
+    xid = GdkX11.X11Surface.get_xid(app.dialog_parent().get_surface())
     subprocess.run(["import", "-window", str(xid), str(out / (name + ".png"))], check=True)
 
 
@@ -86,7 +86,7 @@ def start():
 
 def microphone_notice():
     assert title() == "Microphone unavailable"
-    assert not hasattr(app.window, "detail")
+    assert not hasattr(app, "window")
     host.activate_last()
     until(lambda: app.preferences_dialog is not None, microphone_preferences)
 
@@ -186,9 +186,9 @@ def save_failure():
 def finish():
     assert "permission denied" in app.preferences_dialog.attention.get_subtitle()
     assert len(host.messages) == 8
-    assert not hasattr(app.window, "detail")
+    assert not hasattr(app, "window")
     print(
-        "PASS error reporting: microphone, shortcut, model, pre-capture failure, silence, failed save, deduplication, real notification actions, clean main window"
+        "PASS error reporting: microphone, shortcut, model, pre-capture failure, silence, failed save, deduplication, real notification actions, tray-only application"
     )
     app.request_quit()
 

@@ -1,4 +1,4 @@
-.TH DICTADESK 1 "November 2026" "DictaDesk 1.0" "User Commands"
+.TH DICTADESK 1 "November 2026" "DictaDesk 1.2" "User Commands"
 .SH NAME
 dictadesk \- Desktop Dictation for Linux
 .SH SYNOPSIS
@@ -11,12 +11,15 @@ Local Parakeet transcription is the default; download a model in Preferences.
 .SH OPTIONS
 .TP
 .B --background
-Start in the notification area without opening the main window.
-If a tray host is unavailable, show the window so the application remains reachable.
+Compatibility option. DictaDesk always starts in the system tray without a main window.
+Use the tray menu for Preferences, Last Transcript and Quit.
 .SH SHORTCUTS
 Super+V starts dictation and inserts text at pauses. Press again or Escape to finish.
 Super+Shift+V starts continuous dictation. Shortcuts can be changed in Preferences.
-Global shortcuts and automatic insertion require X11.
+Global shortcuts and automatic insertion require X11. Original editable fields
+are tracked using AT-SPI2. If focus changes, remaining text returns to the original
+field when recording finishes. Unavailable or unverifiable destinations retain
+the text on the clipboard and in Last Transcript.
 .SH FILES
 .TP
 .I ~/.config/dictadesk/preferences.json

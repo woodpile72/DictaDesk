@@ -133,7 +133,7 @@ Section: utils
 Priority: optional
 Architecture: {architecture}
 Maintainer: Erick Woods <woodpile72@users.noreply.github.com>
-Depends: python3 (>= 3.12), python3 (<< 3.13), python3-gi, python3-cairo, python3-gi-cairo, gir1.2-gtk-4.0 (>= 4.14), gir1.2-adw-1 (>= 1.5), libportaudio2, libsndfile1, libstdc++6, libgcc-s1, libc6
+Depends: python3 (>= 3.12), python3 (<< 3.13), python3-gi, python3-cairo, python3-gi-cairo, gir1.2-gtk-4.0 (>= 4.14), gir1.2-adw-1 (>= 1.5), gir1.2-atspi-2.0, at-spi2-core, pulseaudio-utils, libportaudio2, libsndfile1, libstdc++6, libgcc-s1, libc6
 Installed-Size: {size}
 Homepage: https://github.com/woodpile72/DictaDesk
 Description: Desktop Dictation for Linux

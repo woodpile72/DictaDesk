@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 assert os.environ["HOME"].startswith("/tmp/dictadesk-test.")
 from dictadesk.ui.application import Application
-from dictadesk.ui.window import Window
 from dictadesk.ui.gtk import GLib
 from dictadesk.desktop.tray import Tray
 
@@ -20,12 +19,6 @@ app = Application(isolated=True)
 maps = []
 failures = []
 child = None
-
-
-class ObservedWindow(Window):
-    def __init__(self, application):
-        super().__init__(application)
-        self.connect("map", lambda *_: maps.append(True))
 
 
 def later(fn, milliseconds=150):
@@ -45,12 +38,8 @@ def later(fn, milliseconds=150):
 
 def begin():
     assert app.session is not None
-    if normal:
-        assert app.window.get_visible() and maps
-        app.request_quit()
-        return
-    assert not app.window.get_visible() and not maps
-    if missing_host:
+    assert app.get_windows() == []
+    if normal or missing_host:
         later(no_host, 5300)
         return
     app.tray = SimpleNamespace(ready=False, close=lambda: None, update=lambda *_: None)
@@ -58,13 +47,13 @@ def begin():
 
 
 def host_ready():
-    assert not app.window.get_visible() and not maps
+    assert app.get_windows() == []
     app.tray.ready = True
     later(hidden_after_deadline, 5000)
 
 
 def no_host():
-    assert app.window.get_visible() and maps
+    assert app.get_windows() == []
     app.request_quit()
 
 
@@ -84,28 +73,26 @@ def launch(arguments, finished):
 
 
 def hidden_after_deadline():
-    assert not app.window.get_visible() and not maps
+    assert app.get_windows() == []
     launch(["--background"], repeated)
 
 
 def repeated():
-    assert not app.window.get_visible() and not maps
+    assert app.get_windows() == []
     launch([], opened)
 
 
 def opened():
-    assert app.window.get_visible() and maps
-    app.window.set_visible(False)
+    assert app.get_windows() == []
     app.activate_action("show", None)
-    assert app.window.get_visible()
-    app.window.set_visible(False)
+    assert app.preferences_dialog and not hasattr(app, "window")
+    app.preferences_dialog.dialog.close()
     Tray.set_ready(SimpleNamespace(ready=True, app=app), False)
-    assert app.window.get_visible(), "Host loss must leave app reachable"
+    assert not app.get_windows(), "Host loss created an unsolicited window"
     app.request_quit()
 
 
 with (
-    patch("dictadesk.ui.application.Window", ObservedWindow),
     patch("dictadesk.core.session.Session.scan_devices"),
     patch("dictadesk.core.session.Session.load_available_model") as load,
 ):
@@ -117,7 +104,7 @@ print(
     "PASS",
     "normal launch"
     if normal
-    else "missing host fallback"
+    else "missing host without window"
     if missing_host
-    else "hidden startup, delayed host, repeated background, normal activation, tray show and host loss",
+    else "hidden startup, delayed host, repeated background, normal activation, Preferences and host loss",
 )

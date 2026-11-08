@@ -19,7 +19,7 @@ from ..core.credentials import read_key
 from ..core.connection import test_connection
 from ..desktop.keyboard import Chord
 from .gtk import Adw, Gdk, Gtk
-from .window import text
+from .widgets import text
 
 
 class PreferencesDialog:
@@ -29,16 +29,11 @@ class PreferencesDialog:
             title="Preferences",
             application=app,
             modal=True,
-            destroy_with_parent=True,
             resizable=True,
         )
-        # Preferences need their own surface: an in-window dialog cannot grow
-        # beyond the deliberately compact dictation window.
         width, height = 760, 820
-        surface = app.window.get_surface()
-        monitor = app.window.get_display().get_monitor_at_surface(surface) if surface else None
-        if monitor is None:
-            monitor = app.window.get_display().get_monitors().get_item(0)
+        display = Gdk.Display.get_default()
+        monitor = display.get_monitors().get_item(0)
         if monitor:
             geometry = monitor.get_geometry()
             width = min(width, max(320, geometry.width - 64))
@@ -72,9 +67,25 @@ class PreferencesDialog:
         self.controls = {}
         self.validation_problem = ""
         self.shortcut_rows = {}
+        usage = Adw.PreferencesGroup(title="Using DictaDesk")
+        self.usage = text()
+        self.usage.set_margin_top(4)
+        self.usage.set_margin_bottom(4)
+        usage.add(self.usage)
+        usage.add(
+            Gtk.Button(
+                label="Usage & Commands…", action_name="app.usage", halign=Gtk.Align.START
+            )
+        )
+        page.add(usage)
+        self.update_usage()
         self.attention_group = Adw.PreferencesGroup(title="Needs Attention", visible=False)
         self.attention = Adw.ActionRow(use_markup=False)
         self.attention_group.add(self.attention)
+        self.recovery = Gtk.Button(
+            label="Back Up Settings and Start Fresh", action_name="app.recover"
+        )
+        self.attention_group.add(self.recovery)
         page.add(self.attention_group)
         shortcuts = Adw.PreferencesGroup(
             title="Keyboard",
@@ -252,6 +263,42 @@ class PreferencesDialog:
             if key != "silence_threshold":
                 timing.add(row)
             self.controls[key] = row
+        self.voice_banner_group = Adw.PreferencesGroup()
+        self.voice_banner = Gtk.Label(label="Experimental", wrap=True, hexpand=True)
+        self.voice_banner.add_css_class("voice-experimental")
+        self.voice_banner_css = Gtk.CssProvider()
+        self.voice_banner_css.load_from_data(
+            b".voice-experimental { background-color: #b71c1c; color: #ffffff; "
+            b"font-weight: 700; padding: 10px 12px; border-radius: 8px; }"
+        )
+        self.voice_banner.get_style_context().add_provider(
+            self.voice_banner_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        self.voice_banner_group.add(self.voice_banner)
+        page.add(self.voice_banner_group)
+        self.voice_group = Adw.PreferencesGroup(
+            title="Command &amp; Control",
+            description="Keeps the microphone listening locally. Say the configured wake phrase, wait for the acknowledgment, then speak a supported command. Usage &amp; Commands lists the available controls. Dictation takes priority.",
+        )
+        page.add(self.voice_group)
+        self.spin(self.voice_group, "volume_step", "Default Volume Adjustment (%)", 1, 100)
+        self.spin(
+            self.voice_group, "brightness_step", "Default Brightness Adjustment (%)", 1, 100
+        )
+        hands_free = Adw.SwitchRow(
+            title="Enable hands-free commands", active=self.values["hands_free"]
+        )
+        self.voice_group.add(hands_free)
+        self.controls["hands_free"] = hands_free
+        self.wake_phrase = Adw.EntryRow(title="Wake phrase", text=self.values["wake_phrase"])
+        self.voice_group.add(self.wake_phrase)
+        sound = Adw.SwitchRow(
+            title="Play acknowledgment sound", active=self.values["command_sound"]
+        )
+        self.voice_group.add(sound)
+        self.controls["command_sound"] = sound
+        self.voice_status = Adw.ActionRow(title="Local listening", use_markup=False)
+        self.voice_group.add(self.voice_status)
         self.remote_group = remote = Adw.PreferencesGroup(
             title="Remote Transcription",
             description="Requires an API account and key. Audio leaves this computer and is sent to the provider. API charges may apply.",
@@ -326,7 +373,7 @@ class PreferencesDialog:
             "Continuous Session Limit (Minutes)",
             1,
             240,
-            "Escape finishes continuous dictation. Focus changes stop insertion. Remote mode sends completed phrases to the provider.",
+            "Escape finishes extended dictation. After focus changes, remaining text returns to the original field at completion. Remote mode sends completed phrases to the provider.",
         )
         for key, title, subtitle in [
             (
@@ -510,6 +557,16 @@ class PreferencesDialog:
             and device_values[device_row.get_selected()] == c.preferences.device
         )
         cached = downloaded(precision, model)
+        self.voice_banner_group.set_visible(local)
+        self.voice_group.set_visible(local)
+        self.controls["hands_free"].set_sensitive(
+            local and (cached or self.controls["hands_free"].get_active())
+        )
+        self.voice_status.set_subtitle(
+            "The selected local model is installed. No command audio is sent online."
+            if cached
+            else "Download the selected local model before enabling hands-free commands."
+        )
         self.download_button.set_sensitive(local and not c.busy and not cached)
         self.download_row.set_subtitle(
             "Installed · Download approximately " + LOCAL_MODELS[model]["sizes"][precision]
@@ -525,10 +582,19 @@ class PreferencesDialog:
         )
         self.model_button.set_label("Unload" if c.recognizer.loaded else "Load")
         self.model_button.set_sensitive(
-            matches and not c.busy and (cached or c.recognizer.loaded)
+            matches
+            and not c.busy
+            and (cached or c.recognizer.loaded)
+            and not (c.recognizer.loaded and c.preferences.hands_free)
         )
         self.model_row.set_subtitle(
-            ("Loaded and ready." if c.recognizer.loaded else "Not loaded.")
+            (
+                "Kept loaded for hands-free commands."
+                if c.recognizer.loaded and c.preferences.hands_free
+                else "Loaded and ready."
+                if c.recognizer.loaded
+                else "Not loaded."
+            )
             if matches
             else "Save these choices before loading the model."
         )
@@ -668,6 +734,7 @@ class PreferencesDialog:
                 return True
             self.values[key] = chord
             self.shortcut_rows[key].set_subtitle(str(parsed))
+            self.update_usage()
             dialog.close()
             return True
 
@@ -776,6 +843,15 @@ class PreferencesDialog:
                     )
             data["microphone"], data["host_api"] = self.device_values[self.input.get_selected()]
             data["language"] = self.language.get_text().strip()
+            data["wake_phrase"] = self.wake_phrase.get_text().strip()
+            if (
+                data["backend"] == "local"
+                and data["hands_free"]
+                and not downloaded(data["quantization"], data["local_model"])
+            ):
+                raise ValueError(
+                    "Download the selected local model before enabling hands-free commands."
+                )
             data["vocabulary"] = self.rules
             prefs = Preferences(**data).validate()
             chords = [
@@ -817,8 +893,7 @@ class PreferencesDialog:
         elif c.store.problem:
             title, detail = (
                 "Settings need recovery",
-                c.store.problem
-                + " Close Preferences and use Back Up Settings and Start Fresh.",
+                c.store.problem + " Use Back Up Settings and Start Fresh below.",
             )
         elif c.problem:
             _, category, detail = c.problem
@@ -847,6 +922,7 @@ class PreferencesDialog:
         self.attention.set_title(title)
         self.attention.set_subtitle(detail)
         self.attention_group.set_visible(bool(detail))
+        self.recovery.set_visible(bool(c.store.problem))
 
     def key_pressed(self, controller, keyval, keycode, state):
         if keyval == Gdk.KEY_Escape and self.dialog.get_visible_dialog() is None:
@@ -865,8 +941,16 @@ class PreferencesDialog:
         if self.app.keyboard:
             self.app.keyboard.clear()
         self.refresh()
-        # A hidden parent can be raised by the window manager along with its
-        # transient child. Tray Preferences should stand on its own instead.
-        parent = self.app.window if self.app.window.get_visible() else None
-        self.dialog.set_transient_for(parent)
         self.dialog.present()
+
+    def update_usage(self):
+        from html import escape
+
+        shortcut = escape(str(Chord.parse(self.values["shortcut"])))
+        self.usage.set_markup(
+            "1. Click in any text field where you want to dictate.\n"
+            f"2. Press <b>{shortcut}</b> to start recording.\n"
+            "3. Speak normally.\n"
+            f"4. Press <b>{shortcut}</b> again or <b>Escape</b> to finish.\n\n"
+            "DictaDesk runs in the system tray. You don’t need to open a window to use it."
+        )

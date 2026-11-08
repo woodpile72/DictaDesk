@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """GTK application lifecycle and desktop delivery; no speech code on the UI thread."""
 
+from dataclasses import replace
 import os
 import sys
 import time
@@ -9,16 +10,23 @@ from pathlib import Path
 from .. import APP_ID, __version__
 from ..core.credentials import save_key
 from ..core.session import Session
+from ..core.handsfree import HandsFree
+from ..core.voice_commands import diagnostic, exact_application_match, match_applications
 from ..core.settings import private_write
 from ..core.models import LOCAL_MODELS
 from ..desktop.delivery import destination, paste
+from ..desktop.destination import DestinationTracker, Target
 from ..desktop.keyboard import Keyboard
 from ..desktop.startup import set_enabled
 from ..desktop.tray import Tray
+from ..desktop.lock import ScreenLock
+from ..desktop.commands import DesktopCommands
 from .gtk import Adw, Gdk, Gio, GLib, Gtk
 from .microphone import MicrophoneDialog
 from .preferences import PreferencesDialog
-from .window import Window
+from .transcript import TranscriptWindow
+from .usage import UsageWindow
+from .command_chooser import CommandChooser
 
 
 class Application(Adw.Application):
@@ -35,20 +43,26 @@ class Application(Adw.Application):
             "Start in the notification area without opening a window",
             None,
         )
-        self.background_launch = False
-        self.background_timer = None
         self.isolated, self.session_factory = isolated, session_factory
         self.notifications_enabled = not isolated
-        self.window = self.session = self.keyboard = self.tray = None
+        self.session = self.keyboard = self.tray = None
+        self.destinations = None
+        self.transcript_window = None
+        self.usage_window = None
+        self.alert_windows = set()
         self.preferences_dialog = self.microphone_dialog = None
         self.shortcut_problem = ""
         self.escape_problem = ""
-        self.target = None
-        self.target_lost = False
         self.shutting_down = False
         self.timer = None
         self.last_tray = None
         self.pending_start = None
+        self.handsfree = None
+        self.screen_lock = None
+        self.voice_toggle_target = None
+        self.command_chooser = None
+        self.desktop_commands = DesktopCommands(self.dispatch)
+        self.voice_view = None
         self.last_problem = None
         self.environment_problems = {}
         self.resources = Path(__file__).resolve().parents[1] / "resources"
@@ -56,15 +70,18 @@ class Application(Adw.Application):
     def do_startup(self):
         Adw.Application.do_startup(self)
         actions = {
-            "show": self.present_main,
-            "record": self.record_from_button,
-            "continuous": lambda: self.record_from_button(continuous=True),
+            "show": self.show_preferences,
+            "record": lambda: self.start_from_tray("record"),
+            "continuous": lambda: self.start_from_tray("continuous"),
             "cancel": self.cancel_operation,
             "escape": self.escape_pressed,
             "load": lambda: self.session.load(),
             "repair": self.repair_model,
             "preferences": self.show_preferences,
+            "hands-free": self.toggle_hands_free,
+            "pause-commands": self.toggle_voice_pause,
             "about": self.show_about,
+            "usage": self.show_usage,
             "quit": self.request_quit,
             "transcript": self.show_transcript,
             "copy": self.copy_result,
@@ -94,32 +111,41 @@ class Application(Adw.Application):
         GLib.idle_add(run)
 
     def do_command_line(self, command_line):
-        self.background_launch = command_line.get_options_dict().contains("background")
-        try:
-            self.activate()
-        finally:
-            self.background_launch = False
+        self.activate()
         return 0
 
     def do_activate(self):
-        if self.window is not None:
-            if not self.background_launch:
-                self.present_main()
+        if self.session is not None:
             return
         self.session = self.session_factory(self.dispatch, self.refresh, self.deliver)
+        self.handsfree = HandsFree(
+            self.session,
+            self.refresh,
+            self.launch_command,
+            self.command_feedback,
+            desktop_action=self.run_desktop_command,
+            capture_destination=self.capture_command_destination,
+        )
+        self.session.handsfree = self.handsfree
         self.session.stream_delivered = self.deliver_segment
         self.session.recording_event = self.notify_recording
-        self.window = Window(self)
         self.hold()
+        self.desktop_commands.start()
         if not self.isolated:
+            self.screen_lock_changed(True, "Desktop lock status unavailable")
+            try:
+                self.screen_lock = ScreenLock(self.screen_lock_changed)
+            except GLib.Error:
+                pass
             if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-                self.shortcut_problem = "Global shortcuts and automatic paste currently require an X11 session. Button recordings can still be copied."
+                self.shortcut_problem = "Global shortcuts and automatic paste currently require an X11 session. Transcripts remain available from the tray."
             else:
                 try:
                     self.keyboard = Keyboard(self.key_pressed, self.key_released)
+                    self.destinations = DestinationTracker(self.keyboard.connection)
                     self.bind_shortcuts()
                 except Exception:
-                    self.shortcut_problem = "Desktop shortcuts are unavailable. Button recordings can still be copied."
+                    self.shortcut_problem = "Desktop shortcuts are unavailable. Check your X11 session and restart DictaDesk."
             try:
                 self.tray = Tray(self, self.resources)
             except GLib.Error:
@@ -127,27 +153,21 @@ class Application(Adw.Application):
         self.timer = GLib.timeout_add(40, self.tick)
         self.session.scan_devices()
         self.refresh()
-        if self.background_launch:
-            # Login startup must never map the window before the panel is ready.
-            # Allow the session's tray host time to register, then fall back only
-            # if there is no tray through which the user can reach the app.
-            self.background_timer = GLib.timeout_add(5000, self.background_fallback)
-        else:
-            self.present_main()
         self.session.load_available_model()
 
-    def background_fallback(self):
-        self.background_timer = None
-        if not self.shutting_down and not (self.tray and self.tray.ready):
-            self.present_main()
-        return False
-
-    def present_main(self):
-        if self.background_timer:
-            GLib.source_remove(self.background_timer)
-            self.background_timer = None
-        if self.window and not self.shutting_down:
-            self.window.present()
+    def screen_lock_changed(self, blocked, reason):
+        c = self.session
+        # Unknown lock status blocks unattended commands. A confirmed lock also
+        # stops dictation, remaining latched if the lock service then disappears.
+        c.desktop_locked = blocked and (reason == "Screen locked" or c.desktop_locked)
+        c.desktop_blocked, c.desktop_reason = blocked, reason
+        if blocked:
+            self.handsfree.suspend()
+        if c.desktop_locked:
+            self.pending_start = None
+            if c.phase in ("starting", "listening", "transcribing", "delivering"):
+                c.cancel()
+        self.refresh()
 
     def bind_shortcuts(self):
         if self.keyboard and self.session and not self.shutting_down:
@@ -176,7 +196,7 @@ class Application(Adw.Application):
         label = {
             "app.preferences": "Preferences",
             "app.transcript": "Last Transcript",
-            "app.show": "Open DictaDesk",
+            "app.show": "Preferences",
         }[action]
         notification.add_button(label, action)
         try:
@@ -231,7 +251,7 @@ class Application(Adw.Application):
             "settings": (
                 c.store.problem,
                 "Settings need recovery",
-                "Open DictaDesk to back up and reset them.",
+                "Open Preferences to back up and reset them.",
             ),
         }
         for kind, (reason, title, body) in problems.items():
@@ -255,7 +275,7 @@ class Application(Adw.Application):
         elif c.store.problem:
             self.notify_issue(
                 "Settings need recovery",
-                "Open DictaDesk to back up and reset them.",
+                "Open Preferences to back up and reset them.",
                 "app.show",
             )
         elif c.microphone_problem:
@@ -289,7 +309,7 @@ class Application(Adw.Application):
             "started": "DictaDesk is listening.",
             "stopped": "Finishing transcription…",
             "completed": body or "Your dictation is complete.",
-            "attention": "Some text was not inserted. Open DictaDesk to recover it.",
+            "attention": "Some text was not inserted. Recover it from Last Transcript in the tray.",
             "cancelled": "No additional text will be copied or inserted.",
             "failed": body or "Check the details in Preferences.",
         }
@@ -309,62 +329,29 @@ class Application(Adw.Application):
         self.send_notification("recording", notification)
 
     def show_transcript(self):
-        self.window.transcript_dialog.present(self.window)
+        if self.transcript_window is None:
+            self.transcript_window = TranscriptWindow(self)
+        self.transcript_window.present()
 
     def cancel_operation(self):
+        if self.handsfree and not self.session.busy:
+            self.handsfree.cancel()
         self.pending_start = None
         self.session.cancel()
 
-    def record_from_button(self, continuous=False):
-        c = self.session
-        if c.phase == "listening":
-            c.finish_recording()
+    def start_from_tray(self, name):
+        if self.session.desktop_locked:
             return
-        if self.pending_start and self.pending_start[0].startswith("button-"):
-            self.pending_start = None
-            c.notice = "Start cancelled. The model will remain available once loaded."
-            self.refresh()
-            return
-        if c.pending_text:
-            c.notice = "Copy or paste the uninserted text before starting a new recording."
-            self.show_transcript()
-            self.refresh()
-            return
-        if c.store.problem:
-            self.present_main()
-            return
-        if c.phase == "loading":
-            self.pending_start = ("button-continuous" if continuous else "button-record", None)
-            self.refresh()
-            return
-        if c.busy:
-            return
-        if c.microphone_problem or (
-            c.preferences.backend == "openai" and not c.credential_available
-        ):
-            c.notice = c.microphone_problem or "Add an OpenAI API key in Preferences."
-            self.show_preferences()
-            self.refresh()
-            return
-        if c.model_needed:
-            self.pending_start = ("button-continuous" if continuous else "button-record", None)
-            c.load_available_model()
-            if c.phase == "loading":
-                return
-            self.pending_start = None
-            c.notice = "Choose and download a model in Preferences to begin."
-            self.show_preferences()
-            self.refresh()
-            return
-        self.start_button_recording(continuous)
-
-    def start_button_recording(self, continuous=False):
-        self.target = None
-        self.target_lost = False
-        self.window.show_inline_transcript()
-        self.session.record_in_window(continuous=continuous)
+        if self.session.phase == "listening":
+            self.session.finish_recording()
+        elif self.keyboard:
+            self.start_from_shortcut(name)
+        else:
+            self.session.record_continuous(target=Target(None), pause_mode=name == "record")
 
     def key_pressed(self, name):
+        if self.session.desktop_locked:
+            return
         c = self.session
         if name == "finish":
             self.escape_pressed()
@@ -390,31 +377,31 @@ class Application(Adw.Application):
         elif name == "paste" and not c.busy and c.result.text:
             if c._begin("delivering") is None:
                 return
-            self.target = destination(self.keyboard.connection)
-            self.target_lost = False
-            self.deliver(
-                c.pending_text or c.result.text, self.target, pending=bool(c.pending_text)
-            )
+            target = self.destinations.capture(explicit=True)
+            self.deliver(c.pending_text or c.result.text, target)
 
     def escape_pressed(self):
+        if self.handsfree and self.handsfree.state == "command" and not self.session.busy:
+            self.handsfree.cancel()
+            return
         if self.pending_start:
             self.pending_start = None
             self.session.notice = (
                 "Start cancelled. The model will remain available once loaded."
             )
             self.refresh()
-        elif self.session.continuous or self.session.in_window:
+        elif self.session.phase in ("starting", "listening"):
             self.session.finish_recording()
         else:
             self.session.cancel()
 
     def start_from_shortcut(self, name):
-        self.window.hide_inline_transcript()
+        if self.session.desktop_locked:
+            return
         c = self.session
-        self.target = destination(self.keyboard.connection)
-        self.target_lost = False
+        target = self.destinations.capture() if self.destinations else Target(None)
         if c.model_needed and not c.store.problem:
-            self.pending_start = (name, self.target)
+            self.pending_start = (name, target)
             c.load_available_model()
             if c.phase == "loading":
                 return
@@ -423,12 +410,15 @@ class Application(Adw.Application):
             self.explain_blocked_start()
             return
         if name == "continuous":
-            c.record_continuous(target=self.target)
+            c.record_continuous(target=target)
         else:
-            c.record_continuous(target=self.target, pause_mode=True)
+            c.record_continuous(target=target, pause_mode=True)
 
     def resume_pending_start(self):
         c = self.session
+        if c.desktop_locked:
+            self.pending_start = None
+            return
         if not self.pending_start or c.busy:
             return
         name, target = self.pending_start
@@ -438,19 +428,10 @@ class Application(Adw.Application):
                 self.explain_blocked_start()
             self.refresh()
             return
-        if name.startswith("button-"):
-            self.start_button_recording(name == "button-continuous")
-            return
-        if (
-            not self.keyboard
-            or self.target_lost
-            or destination(self.keyboard.connection) != target
-        ):
+        if not self.destinations or not self.destinations.focused_on(target):
             c.notice = "Destination changed while loading. Press the dictation shortcut in the intended text field."
             self.notify_issue(
-                "Recording didn’t start",
-                "Select a text field and use the shortcut again.",
-                "app.show",
+                "Recording didn’t start", "Select a text field and use the shortcut again."
             )
             self.refresh()
             return
@@ -470,39 +451,47 @@ class Application(Adw.Application):
         if self.keyboard:
             try:
                 self.keyboard.poll()
-                if (
-                    self.target
-                    and self.session.busy
-                    and destination(self.keyboard.connection) != self.target
-                ):
-                    if not self.target_lost and self.session.continuous:
-                        self.session.finish_recording()
-                        self.session.notice = "Focus changed. Stopping continuous dictation; uninserted text will be kept."
-                        self.refresh()
-                    self.target_lost = True
             except Exception:
                 self.shortcut_problem = (
                     "The desktop keyboard connection was lost. Restart DictaDesk to reconnect."
                 )
                 self.keyboard.close()
                 self.keyboard = None
-                self.target_lost = True
                 if self.session.continuous:
                     self.session.finish_recording()
                 self.refresh()
         self.session.tick()
         self.resume_pending_start()
+        if self.voice_toggle_target is not None and not self.session.busy:
+            target, self.voice_toggle_target = self.voice_toggle_target, None
+            prefs = replace(self.session.preferences, hands_free=target)
+            self.session.save_preferences(
+                prefs, lambda: setattr(self.handsfree, "override_disabled", False)
+            )
+        self.handsfree.tick()
+        voice_view = (
+            self.handsfree.state,
+            self.handsfree.problem,
+            int(time.monotonic() / 0.8) % 2 if self.handsfree.state == "command" else None,
+        )
+        if voice_view != self.voice_view:
+            self.voice_view = voice_view
+            self.refresh()
         if self.microphone_dialog:
             self.microphone_dialog.refresh()
         return True
 
     def refresh(self):
-        if not self.window:
+        if not self.session:
             return
         c = self.session
         if self.keyboard:
             self.keyboard.set_escape(
-                (c.continuous or c.in_window or bool(self.pending_start))
+                (
+                    c.continuous
+                    or bool(self.pending_start)
+                    or (self.handsfree and self.handsfree.state == "command")
+                )
                 and not self.shutting_down
             )
             self.escape_problem = getattr(self.keyboard, "errors", {}).get("finish", "")
@@ -529,27 +518,266 @@ class Application(Adw.Application):
             "save-transcript": bool(c.result.text) and not c.busy,
             "recover": bool(c.store.damaged) and not c.busy,
         }
+        if self.handsfree and self.handsfree.state == "command":
+            enabled["cancel"] = enabled["escape"] = True
+        enabled["pause-commands"] = bool(
+            self.handsfree and self.handsfree.enabled and not c.busy
+        )
+        enabled["hands-free"] = c.preferences.backend == "local" and (
+            not c.busy or (self.handsfree and self.handsfree.enabled)
+        )
+        if self.command_chooser and not self.handsfree.valid(self.command_chooser[1]):
+            self.command_chooser[0].close()
+            self.command_chooser = None
         for name, value in enabled.items():
             self.lookup_action(name).set_enabled(value and available)
-        self.window.refresh()
+        if self.transcript_window:
+            self.transcript_window.refresh()
+        if self.usage_window:
+            self.usage_window.refresh()
         self.report_session_problem()
         self.report_environment_problems()
         if self.preferences_dialog:
             self.preferences_dialog.refresh()
         if self.microphone_dialog:
             self.microphone_dialog.refresh()
-        key = (c.state, c.busy, c.preferences.symbolic)
+        shape = {
+            "Ready": "idle",
+            "Standby": "idle",
+            "Loading": "loading",
+            "Setup needed": "unavailable",
+            "Listening": "listening",
+            "Transcribing": "processing",
+        }[c.state]
+        title = c.state
+        if self.handsfree and self.handsfree.enabled and not c.busy:
+            state = self.handsfree.state
+            if state == "wake":
+                shape, title = "wake", f"Listening locally for “{c.preferences.wake_phrase}”"
+            elif state == "command":
+                shape = "wake" if int(time.monotonic() / 0.8) % 2 else "idle"
+                title = (
+                    "Choose an application by number (local). Say cancel or press Escape to stop."
+                    if self.handsfree.choice
+                    else "Waiting for a command (local). Say cancel or press Escape to stop."
+                )
+            elif state == "processing":
+                shape, title = "processing", "Checking the wake phrase locally"
+            elif state == "paused":
+                shape, title = "idle", f"Voice commands paused: {self.handsfree.problem}"
+            elif state in ("loading", "unavailable"):
+                shape = state
+                title = self.handsfree.problem or "Loading local voice commands"
+        key = (
+            shape,
+            title,
+            c.busy,
+            c.preferences.symbolic,
+            c.preferences.hands_free,
+            bool(self.handsfree and self.handsfree.override_disabled),
+            c.preferences.backend,
+        )
         if self.tray and key != self.last_tray:
-            shape = {
-                "Ready": "idle",
-                "Standby": "idle",
-                "Loading": "loading",
-                "Setup needed": "unavailable",
-                "Listening": "listening",
-                "Transcribing": "processing",
-            }[c.state]
-            self.tray.update(shape, c.state, c.preferences.symbolic)
+            self.tray.update(shape, title, c.preferences.symbolic)
             self.last_tray = key
+
+    def toggle_hands_free(self):
+        c = self.session
+        if c.preferences.backend != "local":
+            return
+        target = not self.handsfree.enabled
+        if target:
+            from ..core.models import downloaded
+
+            if c.busy or not downloaded(c.preferences.quantization, c.preferences.local_model):
+                self.command_feedback("Download a local model in Preferences first.")
+                return
+        # Disable immediately, even if a settings/model operation is pending.
+        self.handsfree.override_disabled = True
+        self.handsfree.suspend()
+        self.voice_toggle_target = target
+        self.refresh()
+
+    def toggle_voice_pause(self):
+        if self.handsfree.paused:
+            self.handsfree.resume()
+        else:
+            self.handsfree.pause(30)
+        self.refresh()
+
+    def command_feedback(self, message, *, heard=None, query=None):
+        details = diagnostic(heard, query) if heard is not None else ""
+        if self.notifications_enabled:
+            note = Gio.Notification.new("Voice Commands")
+            note.set_body(f"{message}\n{details}" if details else message)
+            note.set_priority(Gio.NotificationPriority.LOW)
+            self.send_notification("voice-commands", note)
+
+    def capture_command_destination(self):
+        return self.destinations.capture() if self.destinations else Target(None)
+
+    def run_desktop_command(self, kind, arguments, generation, *, heard=""):
+        target = self.handsfree.activation_target
+
+        def valid():
+            return not self.shutting_down and self.handsfree.valid(generation)
+
+        def completed(message):
+            if valid():
+                self.command_feedback(message)
+                self.handsfree.complete(generation)
+
+        if not valid():
+            return
+        if kind == "pause-commands":
+            self.handsfree.pause(arguments[0])
+            self.command_feedback(self.handsfree.problem)
+            return
+        if kind == "clipboard":
+            action = arguments[0]
+            value = self.session.last_dictation
+            clipboard = Gdk.Display.get_default().get_clipboard()
+            if action == "clear":
+                cleared = clipboard.set_content(None)
+                completed(
+                    "Clipboard cleared. Last dictation retained."
+                    if cleared
+                    else "The clipboard could not be cleared."
+                )
+            elif not value:
+                completed("No completed dictation is available.")
+            elif action == "copy":
+                clipboard.set(value)
+                completed("Last dictation copied.")
+            else:
+                c = self.session
+                if c.pending_text and c.pending_text != value:
+                    completed("Recover uninserted text before pasting another dictation.")
+                    return
+                # End this activation before beginning the ordinary delivery
+                # operation; existing cancellation and recovery remain in charge.
+                self.handsfree.complete(generation)
+                if c._begin("delivering") is not None:
+                    self.deliver(value, target or Target(None))
+            return
+        self.desktop_commands.execute(kind, arguments, valid, completed, target=target)
+
+    def launch_command(self, query, generation, *, heard=""):
+        if not self.handsfree.valid(generation):
+            return
+        applications = Gio.AppInfo.get_all()
+        if query == ("file", "manager"):
+            default = Gio.AppInfo.get_default_for_type("inode/directory", False)
+            matches = [default] if default else []
+        elif query == ("terminal",):
+            matches = [
+                app
+                for app in applications
+                if app.get_id()
+                in (
+                    "org.gnome.Terminal.desktop",
+                    "gnome-terminal.desktop",
+                    "xfce4-terminal.desktop",
+                    "org.kde.konsole.desktop",
+                    "mate-terminal.desktop",
+                )
+            ][:1]
+            if not matches:
+                matches = match_applications(query, applications)
+        else:
+            matches = match_applications(query, applications)
+
+        def launch(app):
+            if not self.handsfree.valid(generation):
+                return
+            try:
+                app.launch([], Gdk.Display.get_default().get_app_launch_context())
+            except GLib.Error:
+                self.command_feedback(
+                    "The application could not be opened.", heard=heard, query=query
+                )
+            finally:
+                self.handsfree.complete(generation)
+
+        if not matches:
+            self.command_feedback("Application not found.", heard=heard, query=query)
+            self.handsfree.complete(generation)
+        elif len(matches) == 1 and (
+            query in (("file", "manager"), ("terminal",))
+            or exact_application_match(query, matches[0])
+        ):
+            launch(matches[0])
+        else:
+            dialog = CommandChooser(
+                self,
+                "Did You Mean?" if len(matches) == 1 else "Which Application?",
+                diagnostic(heard, query),
+            )
+            listing, hint = dialog.listing, dialog.hint
+
+            current_page = [-1]
+
+            def render(page):
+                current_page[0] = page
+                while child := listing.get_first_child():
+                    listing.remove(child)
+                start = page * 4
+                shown = matches[start : start + 4]
+                more = start + 4 < len(matches)
+                help_text = "Say a number or “cancel”. You can also click a choice."
+                if more:
+                    help_text = (
+                        "Say a number, “more”, or “cancel”. You can also click a choice."
+                    )
+                hint.set_label(help_text)
+
+                def choose(number, heard_choice=""):
+                    if not self.handsfree.valid(generation) or current_page[0] != page:
+                        return
+                    if number in ("cancel", "timeout"):
+                        dialog.close()
+                    elif number in (5, "more") and more:
+                        render(page + 1)
+                    elif isinstance(number, int) and 1 <= number <= len(shown):
+                        launch(shown[number - 1])
+                        dialog.close()
+                    else:
+                        hint.set_label(f"{diagnostic(heard_choice)}\n{help_text}")
+
+                for number, app in enumerate(shown, 1):
+                    row = Adw.ActionRow(
+                        title=f"{number}. {app.get_display_name()}",
+                        subtitle=(
+                            app.get_id()
+                            if sum(
+                                other.get_display_name() == app.get_display_name()
+                                for other in matches
+                            )
+                            > 1
+                            else ""
+                        ),
+                        activatable=True,
+                        use_markup=False,
+                    )
+                    row.set_tooltip_text(app.get_id())
+                    row.connect("activated", lambda _, number=number: choose(number))
+                    listing.append(row)
+                if more:
+                    row = Adw.ActionRow(title="5. More matches", activatable=True)
+                    row.connect("activated", lambda *_: choose("more"))
+                    listing.append(row)
+                self.handsfree.offer_choices(generation, choose)
+
+            def closed(*_):
+                self.handsfree.complete(generation)
+                if self.command_chooser and self.command_chooser[0] is dialog:
+                    self.command_chooser = None
+                return False
+
+            dialog.connect("close-request", closed)
+            self.command_chooser = (dialog, generation)
+            render(0)
+            dialog.present()
 
     def copy_result(self):
         if self.session.result.text:
@@ -566,122 +794,148 @@ class Application(Adw.Application):
             self.refresh()
 
     def deliver_segment(self, value, target, done):
-        """One committed phrase; never deliver the accumulating full transcript."""
+        """Keep streaming in the original field; defer after any focus change."""
+        if (
+            not self.destinations
+            or getattr(target, "deferred", False)
+            or not self.destinations.focused_on(target)
+        ):
+            if target:
+                target.deferred = True
+            done(False)
+            return
+        self.insert(value, target, done, restore=False)
+
+    def deliver(self, value, target):
+        c = self.session
+        if c.desktop_locked:
+            c.pending_text = value
+            c.phase = "idle"
+            return
+        Gdk.Display.get_default().get_clipboard().set(value)
+        if target is None:  # Automatic insertion explicitly disabled in settings.
+            c.pending_text = ""
+            c.phase = "idle"
+            c.notice = "Transcript copied."
+            return
+        ticket = c.operation
+        c.phase = "delivering"
+        c.notice = "Returning to the original dictation field…"
+        self.refresh()
+
+        def completed(inserted):
+            if ticket != c.operation or self.shutting_down:
+                return
+            c.phase = "idle"
+            if inserted:
+                c.pending_text = ""
+                c.notice = "Transcript pasted."
+                c._recording_event(
+                    ticket, "completed", "Your text was inserted into the original field."
+                )
+            else:
+                c.pending_text = value
+                c.notice = "Automatic insertion failed. Text is on the clipboard and in Last Transcript; use Copy Uninserted Text or Paste Again in the intended field."
+                if c.cancelled.is_set():
+                    c._recording_event(ticket, "cancelled")
+                else:
+                    self.delivery_attention()
+            self.refresh()
+
+        self.insert(value, target, completed, restore=True)
+
+    def insert(self, value, target, done, *, restore):
+        """Asynchronous focus/clipboard sequencing, bound to one operation ticket."""
         c = self.session
         generation, cancelled = c.operation, c.cancelled
         started = time.monotonic()
+        previous = None
+        requested = False
+        finished = False
+
+        def complete(sent):
+            nonlocal finished
+            if finished:
+                return
+            finished = True
+            if not sent and target:
+                target.deferred = True
+            done(sent)
 
         def attempt():
+            nonlocal previous, requested
             try:
-                invalid = (
+                if (
                     self.shutting_down
-                    or generation != c.operation
+                    or c.desktop_locked
                     or cancelled.is_set()
+                    or generation != c.operation
                     or not self.keyboard
-                    or self.target_lost
-                    or destination(self.keyboard.connection) != target
-                )
-                if invalid or time.monotonic() - started > 3:
-                    self.target_lost = True
-                    c.finish_recording()
-                    done(False)
+                    or not self.destinations
+                    or time.monotonic() - started > 3
+                ):
+                    complete(False)
                     return False
                 if self.keyboard.down or self.keyboard.modifiers_down():
                     return True
+                tracker = self.destinations
+                if not tracker.valid(target):
+                    complete(False)
+                    return False
+                if not tracker.focused_on(target):
+                    if not restore or (requested and time.monotonic() - started > 2):
+                        complete(False)
+                        return False
+                    if not requested:
+                        previous = tracker.capture()
+                        requested = True
+                    if not tracker.restore(target):
+                        complete(False)
+                        return False
+                    return True
+                if not tracker.restore_position(target) or not tracker.focused_on(target):
+                    complete(False)
+                    return False
                 Gdk.Display.get_default().get_clipboard().set(value)
-                sent = paste(self.keyboard.connection, target)
-                if not sent:
-                    self.target_lost = True
-                    c.finish_recording()
+                tracker.expect(target, value)
+                # Reuse the existing XTest paste and its final X focus check.
+                current = destination(self.keyboard.connection)
+                sent = bool(
+                    current
+                    and current.client == target.window.client
+                    and current.pid == target.window.pid
+                    and tracker.focused_on(target)
+                    and paste(self.keyboard.connection, current)
+                )
 
-                # Let the destination request the clipboard before another phrase
-                # can replace it. X11 cannot acknowledge application-level insertion.
-                def acknowledge():
-                    done(sent)
+                pasted_at = time.monotonic()
+
+                def acknowledged():
+                    try:
+                        if generation != c.operation or cancelled.is_set() or c.desktop_locked:
+                            complete(False)
+                            return False
+                        confirmed = sent and tracker.advance(target)
+                        if confirmed is None and time.monotonic() - pasted_at < 1.5:
+                            return True
+                        if confirmed is None:
+                            target.invalid = True
+                            confirmed = False
+                        if (
+                            previous
+                            and not self.keyboard.down
+                            and not self.keyboard.modifiers_down()
+                        ):
+                            tracker.return_focus(previous, target)
+                        complete(confirmed)
+                    except Exception:
+                        complete(False)
                     return False
 
-                GLib.timeout_add(250, acknowledge)
+                GLib.timeout_add(250, acknowledged)
             except Exception:
-                self.target_lost = True
-                c.finish_recording()
-                done(False)
+                complete(False)
             return False
-
-        GLib.timeout_add(50, attempt)
-
-    def deliver(self, value, target, pending=False):
-        c = self.session
-        Gdk.Display.get_default().get_clipboard().set(value)
-        if not target or not self.keyboard or self.target_lost:
-            c.phase = "idle"
-            c.notice = (
-                "Transcript copied."
-                if target is None
-                else "Destination changed. Transcript copied; use Paste Again in the intended field."
-            )
-            if target is not None:
-                self.delivery_attention()
-            return
-        ticket = c.operation
-        cancelled = c.cancelled
-        start = time.monotonic()
-        c.phase = "delivering"
-        c.notice = "Release the shortcut to insert the transcript."
-        self.refresh()
-
-        def try_paste():
-            if self.shutting_down or ticket != c.operation:
-                return False
-            inserted = False
-            if cancelled.is_set():
-                c.phase = "idle"
-                c.notice = "Cancelled. Nothing was inserted."
-            elif (
-                not self.keyboard
-                or self.target_lost
-                or destination(self.keyboard.connection) != target
-            ):
-                c.phase = "idle"
-                c.notice = "Destination changed. Transcript copied; use Paste Again in the intended field."
-            elif time.monotonic() - start > 3:
-                c.phase = "idle"
-                c.notice = "Keys are still held. Transcript copied; use Paste Again when ready."
-            elif self.keyboard.down or self.keyboard.modifiers_down():
-                return True
-            else:
-                c.phase = "idle"
-                sent = paste(self.keyboard.connection, target)
-                inserted = sent
-                if sent and pending:
-                    c.pending_text = ""
-                c.notice = (
-                    "Transcript pasted."
-                    if sent
-                    else "Transcript copied. Paste into the intended field."
-                )
-            if cancelled.is_set():
-                c._recording_event(ticket, "cancelled")
-            elif not inserted:
-                self.delivery_attention()
-            else:
-                c._recording_event(
-                    ticket, "completed", "Your text has been copied to the clipboard."
-                )
-            self.refresh()
-            return False
-
-        def attempt():
-            try:
-                return try_paste()
-            except Exception:
-                c.phase = "idle"
-                c.set_problem(
-                    "delivery",
-                    "Automatic paste failed. Your transcript is still available to copy.",
-                )
-                c._recording_event(ticket, "failed")
-                self.refresh()
-                return False
 
         GLib.timeout_add(50, attempt)
 
@@ -719,13 +973,43 @@ class Application(Adw.Application):
     def dialog_parent(self):
         if self.preferences_dialog and self.preferences_dialog.dialog.get_visible():
             return self.preferences_dialog.dialog
-        return self.window
+        if self.transcript_window and self.transcript_window.dialog.get_visible():
+            return self.transcript_window.dialog
+        return None
 
     def alert(self, heading, body, parent=None):
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response("close", "Close")
-        dialog.present(parent or self.dialog_parent())
+        self.present_dialog(dialog, parent)
         return dialog
+
+    def present_dialog(self, dialog, parent=None):
+        parent = parent or self.dialog_parent()
+        if parent:
+            dialog.present(parent)
+            return
+        # Adw.Dialog needs a real surface; create a temporary utility host only
+        # for this requested dialog. Startup never creates a window.
+        host = Adw.Window(
+            application=self,
+            title=dialog.get_title() or "DictaDesk",
+            default_width=480,
+            default_height=320,
+        )
+        self.alert_windows.add(host)
+
+        def closed(*_):
+            self.alert_windows.discard(host)
+            host.destroy()
+
+        dialog.connect("closed", closed)
+        host.present()
+        dialog.present(host)
+
+    def show_usage(self):
+        if self.usage_window is None:
+            self.usage_window = UsageWindow(self)
+        self.usage_window.present()
 
     def show_preferences(self):
         if self.session.busy:
@@ -747,6 +1031,8 @@ class Application(Adw.Application):
                     "saving",
                     f"Preferences saved, but login startup could not be changed: {exc}",
                 )
+            if self.voice_toggle_target is not False:
+                self.handsfree.override_disabled = False
             close()
 
         self.session.save_preferences(prefs, complete, prepare=prepare)
@@ -775,7 +1061,7 @@ class Application(Adw.Application):
                 else None
             ),
         )
-        dialog.present(self.dialog_parent())
+        self.present_dialog(dialog)
 
     def remove_models(self, model=None):
         dialog = Adw.AlertDialog(
@@ -795,7 +1081,7 @@ class Application(Adw.Application):
                 self.session.remove_models(model) if response == "remove" else None
             ),
         )
-        dialog.present(self.dialog_parent())
+        self.present_dialog(dialog)
 
     def repair_model(self, parent=None):
         dialog = Adw.AlertDialog(
@@ -811,7 +1097,7 @@ class Application(Adw.Application):
                 self.session.load(repair=True) if response == "repair" else None
             ),
         )
-        dialog.present(self.dialog_parent())
+        self.present_dialog(dialog)
 
     def recover(self):
         try:
@@ -845,10 +1131,11 @@ class Application(Adw.Application):
             except Exception as exc:
                 self.alert("Transcript Not Saved", str(exc))
 
-        dialog.save(self.window, None, chosen)
+        dialog.save(self.dialog_parent(), None, chosen)
 
     def show_about(self):
-        dialog = Adw.AboutDialog(
+        dialog = Adw.AboutWindow(
+            application=self,
             application_name="DictaDesk",
             application_icon=APP_ID,
             version=__version__,
@@ -858,16 +1145,20 @@ class Application(Adw.Application):
             comments="Voice dictation for everyday applications on the Cinnamon desktop.",
         )
         dialog.add_credit_section("Contributors", ["Erick Woods"])
-        dialog.present(self.window)
+        dialog.present()
 
     def request_quit(self):
         if self.shutting_down:
             return
         self.shutting_down = True
-        if self.background_timer:
-            GLib.source_remove(self.background_timer)
-            self.background_timer = None
+        self.desktop_commands.close()
+        if self.screen_lock:
+            self.screen_lock.close()
+            self.screen_lock = None
         self.refresh()
+        if self.destinations:
+            self.destinations.close()
+            self.destinations = None
         if self.keyboard:
             self.keyboard.close()
             self.keyboard = None

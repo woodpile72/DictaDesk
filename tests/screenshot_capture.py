@@ -45,7 +45,8 @@ def later(fn):
 
 
 def shot(name):
-    xid = GdkX11.X11Surface.get_xid(app.dialog_parent().get_surface())
+    window = app.dialog_parent() or app.get_active_window()
+    xid = GdkX11.X11Surface.get_xid(window.get_surface())
     subprocess.run(["import", "-window", str(xid), str(out / (name + ".png"))], check=True)
 
 
@@ -54,25 +55,6 @@ def start():
     c.recognizer = Worker()
     c.microphone_problem = ""
     c.notice = ""
-    app.refresh()
-    later(main)
-
-
-def main():
-    shot("main-window")
-    app.window.show_inline_transcript()
-    c = app.session
-    c.phase, c.in_window = "listening", True
-    c.inline_text = "Here is a short example of dictating directly into DictaDesk. When I finish, the complete transcript is copied to the clipboard."
-    app.refresh()
-    later(button)
-
-
-def button():
-    shot("button-dictation")
-    c = app.session
-    c.phase, c.in_window = "idle", False
-    app.window.hide_inline_transcript()
     app.refresh()
     app.show_preferences()
     later(local)
@@ -104,7 +86,6 @@ def problem():
     app.preferences_dialog.dialog.close()
     app.session.problem = None
     app.session.notice = ""
-    app.window.set_default_size(749, 600)
     app.refresh()
     app.show_about()
     later(done)
@@ -112,7 +93,7 @@ def problem():
 
 def done():
     shot("about")
-    print("Saved seven documentation screenshots with synthetic content.")
+    print("Saved five documentation screenshots with synthetic content.")
     app.request_quit()
 
 

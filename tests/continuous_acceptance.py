@@ -10,6 +10,8 @@ assert os.environ["HOME"].startswith("/tmp/dictadesk-test.")
 from dictadesk.ui.application import Application
 from dictadesk.ui.gtk import Gdk, GLib
 from dictadesk.desktop.delivery import Destination
+from dictadesk.desktop.destination import Target
+from destination_mock import Tracker
 from test_continuous import FakeCapture, FakeRecognizer, VOICE
 
 
@@ -46,7 +48,8 @@ class Keyboard:
 
 
 app = Application(isolated=True)
-expected = Destination(100, 101, 200)
+tracker = Tracker()
+expected = tracker.current
 current = expected
 sent = []
 failures = []
@@ -62,7 +65,8 @@ def send(connection, target):
 
     clipboard.read_text_async(None, read)
     if move_on_first:
-        current = Destination(300, 301, 400)
+        current = Target(Destination(300, 301, 400))
+        tracker.current = current
     return True
 
 
@@ -88,6 +92,7 @@ def until(condition, next_step):
 
 def start():
     app.keyboard = Keyboard()
+    app.destinations = tracker
     c = app.session
     c.microphone_problem = ""
     c.recognizer = FakeRecognizer()
@@ -114,6 +119,7 @@ def finished():
     assert not app.session.pause_dictation
     assert len(sent) == 3, "Finalization duplicated the document"
     sent.clear()
+    expected.deferred = False
     app.session.recognizer = FakeRecognizer()
     app.key_pressed("record")
     until(lambda: len(sent) == 3, stop_with_super_v)
@@ -137,24 +143,32 @@ def finished_twice():
     app.session.recognizer = FakeRecognizer()
     app.key_pressed("continuous")
     assert app.session.capture.silence_stop_seconds == 0
+    until(lambda: app.session.pending_text == ". Next…", finish_moved)
+
+
+def finish_moved():
+    assert app.session.busy, "Focus change stopped recording"
+    assert sent == ["Hello, world"]
+    app.key_pressed("finish")
     until(lambda: not app.session.busy, moved)
 
 
 def moved():
     global current, move_on_first
-    assert sent == ["Hello, world"], sent
-    assert app.session.pending_text == ". Next…", app.session.pending_text
+    assert sent == ["Hello, world", ". Next…"], sent
+    assert not app.session.pending_text
     assert app.session.result.text == "Hello, world. Next…"
     current = expected
+    tracker.current = expected
     move_on_first = False
-    app.key_pressed("paste")
-    until(lambda: not app.session.busy and len(sent) == 2, recovered)
+    recovered()
 
 
 def recovered():
     assert sent == ["Hello, world", ". Next…"], sent
     assert not app.session.pending_text
     sent.clear()
+    expected.deferred = False
     app.session.recognizer = FakeRecognizer()
     app.keyboard.modifiers = True
     app.key_pressed("continuous")
@@ -172,7 +186,7 @@ def cancelled():
     assert app.session.pending_text == "Hello, world"
     assert "already inserted" in app.session.notice
     print(
-        "PASS continuous GTK: toggle, incremental clipboard, no final duplication, focus-loss stop, pending-only recovery, held modifiers and cancellation"
+        "PASS continuous GTK: toggle, incremental clipboard, no final duplication, focus-change deferral and final restoration, held modifiers and cancellation"
     )
     app.request_quit()
 
@@ -181,7 +195,7 @@ with (
     patch("dictadesk.core.session.check"),
     patch("dictadesk.core.session.microphones", return_value=[]),
     patch("dictadesk.audio.continuous.ContinuousCapture", LiveCapture),
-    patch("dictadesk.ui.application.destination", side_effect=lambda _: current),
+    patch("dictadesk.ui.application.destination", side_effect=lambda _: tracker.current.window),
     patch("dictadesk.ui.application.paste", side_effect=send),
 ):
     until(lambda: app.session is not None, start)

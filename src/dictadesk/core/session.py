@@ -24,7 +24,12 @@ class Session:
         self.preferences = self.store.read()
         self.recognizer = recognizer or Recognizer()
         self.result = Transcript()
+        self.last_dictation = ""
         self.phase = "idle"
+        self.handsfree = None
+        self.desktop_blocked = False
+        self.desktop_locked = False
+        self.desktop_reason = ""
         self.notice = self.store.problem
         self.problem = None
         self.problem_serial = 0
@@ -46,8 +51,6 @@ class Session:
         self.thread = None
         self.closing = False
         self.recordings_checked = False
-        self.in_window = False
-        self.inline_text = ""
         self.continuous = False
         self.pause_dictation = False
         self.pending_text = ""
@@ -65,6 +68,7 @@ class Session:
     def can_record(self):
         return not (
             self.busy
+            or self.desktop_locked
             or self.closing
             or self.store.problem
             or self.microphone_problem
@@ -74,6 +78,8 @@ class Session:
 
     @property
     def state(self):
+        if self.desktop_locked:
+            return "Standby"
         if self.phase == "listening":
             return "Listening"
         if self.phase in ("transcribing", "delivering", "cancelling"):
@@ -157,8 +163,12 @@ class Session:
         self.notice = reason
 
     def _begin(self, phase):
+        if self.desktop_locked and phase in ("starting", "delivering"):
+            return None
         if self.busy or self.closing or self.store.problem:
             return None
+        if self.handsfree:
+            self.handsfree.suspend()
         self.operation += 1
         self._dictation_operation = None
         self._recording_events = set()
@@ -176,6 +186,28 @@ class Session:
 
         def work():
             try:
+                if self.handsfree:
+                    self.handsfree.join()
+                if cancel.is_set():
+                    raise InterruptedError()
+                if (
+                    self.handsfree
+                    and generation == self._dictation_operation
+                    and self.preferences.backend == "local"
+                    and not self.recognizer.loaded
+                ):
+                    self.recognizer.request(
+                        {
+                            "op": "load",
+                            "local_only": True,
+                            "cache": str(model_directory(create=True)),
+                            "precision": self.preferences.quantization,
+                            "local_model": self.preferences.local_model,
+                            "device": self.preferences.device,
+                        },
+                        cancel,
+                        timeout=900,
+                    )
                 result, problem = task(cancel, generation), ""
             except InterruptedError:
                 result, problem = None, "Cancelled. Nothing was inserted."
@@ -207,6 +239,8 @@ class Session:
                 else:
                     try:
                         complete(result)
+                        if generation == self._dictation_operation:
+                            self.last_dictation = self.result.text
                     except Exception as exc:
                         self.set_problem(
                             "delivery"
@@ -223,8 +257,9 @@ class Session:
                                 self._completion_body,
                             )
                 self.continuous = False
-                self.in_window = False
                 self.pause_dictation = False
+                if self.handsfree:
+                    self.handsfree.resume_at = time.monotonic() + 1
                 self.changed()
 
             self.dispatch(finish)
@@ -354,14 +389,7 @@ class Session:
                 lambda _: setattr(self, "notice", "Local model unloaded."),
             )
 
-    def record_in_window(self, continuous=False):
-        if self.preferences.backend == "local":
-            self.record_continuous(in_window=True, pause_mode=not continuous)
-        else:
-            # Keep remote button recordings to one upload, as before.
-            self.record(in_window=True)
-
-    def record(self, target=None, sample=False, *, in_window=False):
+    def record(self, target=None, sample=False):
         if self.phase == "listening":
             self.finish_recording()
             return
@@ -387,9 +415,6 @@ class Session:
         if not sample:
             self._dictation_operation = self.operation
         prefs = self.preferences
-        self.in_window = in_window
-        if in_window:
-            self.inline_text = ""
         self.capture = capture = Capture(
             prefs, directory("CACHE") / "recordings", seconds=8 if sample else None
         )
@@ -474,8 +499,6 @@ class Session:
                 self.notice = "Microphone sample transcribed. Nothing was copied or pasted."
             else:
                 self.result.replace(text, prefs.vocabulary, prefs.spoken_punctuation)
-                if in_window:
-                    self.inline_text = self.result.text
                 self.pending_text = ""
                 self.delivered(self.result.text, target if prefs.auto_paste else None)
                 if target is None or not prefs.auto_paste:
@@ -488,7 +511,7 @@ class Session:
 
         self._run(ticket, record_work, complete)
 
-    def record_continuous(self, target=None, *, pause_mode=False, in_window=False):
+    def record_continuous(self, target=None, *, pause_mode=False):
         from ..audio.continuous import ContinuousCapture, IncrementalCapture
         from ..audio.input import RATE
         from .incremental import StablePrefix
@@ -512,20 +535,14 @@ class Session:
             return
         self._dictation_operation = self.operation
         self.continuous = True
-        self.in_window = in_window
-        if in_window:
-            self.inline_text = ""
         self.pause_dictation = pause_mode
         prefs = self.preferences
-        live = prefs.backend == "local" and (
-            in_window or (not pause_mode and prefs.continuous_live)
-        )
+        live = prefs.backend == "local" and not pause_mode and prefs.continuous_live
         capture_type = IncrementalCapture if live else ContinuousCapture
         self.capture = capture = capture_type(prefs, directory("CACHE") / "recordings")
         if pause_mode:
             capture.limit = prefs.max_seconds
-            if not in_window:
-                capture.silence_stop_seconds = prefs.silence_stop_seconds
+            capture.silence_stop_seconds = prefs.silence_stop_seconds
         self.changed()
         first = True
         active_segment = None
@@ -540,9 +557,7 @@ class Session:
                         self.phase = "listening"
                         self._recording_event(generation, "started")
                         self.notice = (
-                            ""
-                            if in_window
-                            else "Live dictation: agreed words are inserted while you speak; the changing ending stays in Preview. Press Escape to finish."
+                            "Live dictation: agreed words are inserted while you speak; the changing ending stays in Preview. Press Escape to finish."
                             if live
                             else "Pause between phrases to insert text. Press Escape to finish."
                         )
@@ -600,19 +615,16 @@ class Session:
                             piece.corrected = provisional(
                                 piece.corrected, text, prefs.spoken_punctuation
                             )
-                        if in_window:
-                            preview, conflict, committed = "", False, ""
-                        else:
-                            preview, conflict = stable.update(
-                                piece.corrected,
-                                final=update.final
-                                or (
-                                    update.paused
-                                    and explicit_ending(text, prefs.spoken_punctuation)
-                                ),
-                                paused=update.paused,
-                            )
-                            committed = stable.committed
+                        preview, conflict = stable.update(
+                            piece.corrected,
+                            final=update.final
+                            or (
+                                update.paused
+                                and explicit_ending(text, prefs.spoken_punctuation)
+                            ),
+                            paused=update.paused,
+                        )
+                        committed = stable.committed
                         acknowledged = threading.Event()
 
                         def accept(
@@ -632,24 +644,6 @@ class Session:
                                 active_segment = update.segment
                                 base_original = "" if first else self.result.original
                                 base_corrected = "" if first else self.result.corrected
-                            if in_window:
-                                # The app owns this draft: revisions are safe here.
-                                # Never touch the clipboard until recording finishes.
-                                self.inline_text = base_corrected + continuation(
-                                    base_corrected, corrected
-                                )
-                                if update.final and corrected:
-                                    if first:
-                                        self.result = Transcript()
-                                        first = False
-                                    self.result.original = base_original + continuation(
-                                        base_original, text
-                                    )
-                                    self.result.corrected = self.inline_text
-                                    self.result.undo = False
-                                acknowledged.set()
-                                self.changed()
-                                return
                             self.preview = preview if not update.final else ""
                             if conflict:
                                 # Preserve the revised hypothesis for manual review.
@@ -726,17 +720,14 @@ class Session:
                 raise ValueError(
                     "No speech was recognized. Your previous transcript is still available."
                 )
-            if in_window:
-                self.inline_text = self.result.text
-                self.pending_text = ""
-                self.delivered(self.result.text, None)
-                self._completion_body = "Your text has been copied to the clipboard."
-                if timed_out:
-                    self.notice = "Recording time limit reached. " + self.notice
-                return
             self.notice = ("Recording time limit reached. " if timed_out else "") + (
                 "Uninserted text is available to copy or paste." if self.pending_text else ""
             )
+
+            if self.pending_text:
+                self.delivered(self.pending_text, target if prefs.auto_paste else None)
+                if not prefs.auto_paste:
+                    self._completion_body = "Your text has been copied to the clipboard."
 
         self._run(ticket, work, complete)
 
@@ -810,6 +801,7 @@ class Session:
         if (
             not self.busy
             and self.recognizer.loaded
+            and not (self.handsfree and self.handsfree.enabled)
             and self.preferences.idle_seconds
             and time.monotonic() - self.last_used >= self.preferences.idle_seconds
         ):
@@ -817,11 +809,15 @@ class Session:
 
     def close(self, done):
         self.closing = True
+        if self.handsfree:
+            self.handsfree.suspend()
         if self.busy:
             self.cancel()
         thread = self.thread
 
         def cleanup():
+            if self.handsfree:
+                self.handsfree.join()
             self.recognizer.close()
             if thread and thread.is_alive():
                 thread.join()
