@@ -11,15 +11,15 @@ Dictate directly into text fields using a keyboard shortcut. DictaDesk runs in
 the system tray, with no main application window. Built with Python, GTK 4 and
 libadwaita for Cinnamon. Local transcription is the default.
 
-`Download DictaDesk 1.2.0 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.0/dictadesk_1.2.0_amd64.deb>`_
-· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.2.0>`_
+`Download DictaDesk 1.2.2 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.2/dictadesk_1.2.2_amd64.deb>`_
+· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.2.2>`_
 · `Report an issue <https://github.com/woodpile72/DictaDesk/issues>`_
 
 .. image:: media/screenshots/preferences-local.png
    :alt: DictaDesk General preferences with shared microphone, startup and transcription settings
    :width: 880
 
-Screenshots show the actual DictaDesk 1.2.0 interface in an isolated demonstration
+Screenshots show the actual DictaDesk 1.2.2 interface in an isolated demonstration
 profile, with simulated readiness and sample text. No personal transcripts or
 credentials are shown.
 
@@ -28,11 +28,11 @@ Install
 
 Developed and tested on **Linux Mint 22.3 Cinnamon, X11, x86-64 (amd64)**.
 Download the Debian package and
-`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.0/SHA256SUMS>`_
+`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.2/SHA256SUMS>`_
 into the same folder, then run::
 
     sha256sum --ignore-missing -c SHA256SUMS
-    sudo apt install ./dictadesk_1.2.0_amd64.deb
+    sudo apt install ./dictadesk_1.2.2_amd64.deb
 
 Check that the checksum reports ``OK``, then launch **DictaDesk** from your
 application menu. Use the tray menu to open Preferences and download a local
@@ -47,7 +47,7 @@ Preferences
 Preferences opens on **General** for the shared microphone, microphone test,
 transcription backend, models, credentials, startup and tray appearance.
 **Dictation** contains keyboard shortcuts, recording timing, insertion, formatting
-and vocabulary. Help is available from the tray and the relevant settings pages.
+and vocabulary. Help is available from the relevant settings pages.
 
 Start dictating
 ---------------
@@ -169,7 +169,7 @@ Source uses a ``src/dictadesk`` layout. Build and test instructions are in
 model weights, dependency wheels and local caches are not part of this repository.
 
 .. image:: media/screenshots/about.png
-   :alt: DictaDesk About screen with its microphone icon and version 1.2.0
+   :alt: DictaDesk About screen with its microphone icon and version 1.2.2
    :width: 880
 
 License and credits

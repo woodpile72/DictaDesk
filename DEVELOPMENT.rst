@@ -36,6 +36,7 @@ Install xvfb, dbus-x11 and imagemagick for isolated desktop checks::
     scripts/test-ui .venv/bin/python tests/error_reporting_acceptance.py
     scripts/test-ui .venv/bin/python tests/shortcut_loading_acceptance.py
     scripts/test-ui .venv/bin/python tests/startup_acceptance.py
+    scripts/test-ui .venv/bin/python tests/timer_acceptance.py
 
 Desktop checks use private HOME/XDG directories, Xvfb and a private session bus.
 Never run them against a user's live desktop. Screenshot capture uses actual GTK
@@ -57,7 +58,7 @@ Publish 1.x versions as regular GitHub releases, marking the newest as Latest.
 
 From the reviewed release tag, use the Python 3.12 environment above::
 
-    git checkout v1.2.0
+    git checkout v1.2.2
     scripts/build-deb
 
 ``requirements.lock`` pins private runtime wheels and their SHA-256 hashes.
@@ -211,8 +212,8 @@ Escape, Cancel, timeout, dictation and screen locking dismiss the covers. This i
 application attention UI, not a security lock: operating-system shortcuts remain
 available. No screensaver activation or global keyboard grab is used.
 
-Tray-only destinations (1.2.0 in development)
--------------------------------------------
+Tray-only destinations (introduced in 1.2.0)
+--------------------------------------------
 
 Application startup holds the GTK application without creating any window.
 Preferences and Last Transcript create standalone windows only on explicit

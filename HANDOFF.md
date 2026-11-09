@@ -1,6 +1,6 @@
 # DictaDesk development handoff
 
-Updated 2026-11-08 for the 1.2.0 release preparation. Historical transfer notes and local checks are preserved in ignored `.qa/release-1.2.0/` rather than mixed into the current instructions.
+Updated 2026-11-09 for the 1.2.2 release preparation. Historical transfer notes and local checks are preserved in ignored `.qa/release-1.2.0/` rather than mixed into the current instructions.
 
 ## Local countdown timer
 
@@ -20,12 +20,12 @@ Successful routine commands (search, audio/display/media/window actions, screens
 
 ## Local 1.2.2 development
 
-Added local-recognition web search with exact search/search for/search up prefixes. DuckDuckGo is the default provider; Google and Bing are selectable under Control → Web Search. Queries are encoded into HTTPS URLs and opened asynchronously in the desktop default browser, with existing generation/lock guards. Only query text reaches the chosen web service; audio remains with local recognition. Search arguments retain punctuation and are never treated as shell input or another action. Old settings default to DuckDuckGo. This is a local test build; 1.2.0 remains the published release.
+Added local-recognition web search with exact search/search for/search up prefixes. DuckDuckGo is the default provider; Google and Bing are selectable under Control → Web Search. Queries are encoded into HTTPS URLs and opened asynchronously in the desktop default browser, with existing generation/lock guards. Only query text reaches the chosen web service; audio remains with local recognition. Search arguments retain punctuation and are never treated as shell input or another action. Old settings default to DuckDuckGo. 1.2.2 is now authorized for release after final checks.
 
 ## Current state and authorization
 
-- Local version 1.2.2; published version 1.2.0. Cinnamon/X11, amd64, Python 3.12, GTK4 and libadwaita.
-- The user authorized publication of 1.2.0, which is complete. Later local builds require a new publication request.
+- Local version 1.2.2; published version 1.2.0 (1.2.2 publication now authorized). Cinnamon/X11, amd64, Python 3.12, GTK4 and libadwaita.
+- The user authorized publication of 1.2.0, which is complete. The user now explicitly authorized final checks, publication of 1.2.2, and local installation/restart.
 - Future local builds are authorized to reinstall the deb and restart the app. Quit gracefully first; verify the installed source and new process.
 - Do not mention or promote Control or Speech in the public release title or notes. Keep public release notes and commit messages generic. The comprehensive local changes/usage guide in `dist/` explains all features.
 - Never send announcements to other people unless explicitly requested.
@@ -52,7 +52,7 @@ The wake-detected/checking-command popup was removed at the user's request. The 
 
 Run unit tests with the locked runtime dependencies, Ruff and compilation. Use `scripts/test-ui` for GTK/X11 checks with private HOME/XDG, display and session bus. Never run integration fixtures directly on the real desktop. Firefox accessibility/paste checks can be sensitive to parallel execution; rerun alone to distinguish timing failures.
 
-The current unit count is **308**. Release evidence is saved under ignored `.qa/release-1.2.0/`. Generated screenshots use synthetic state and contain no user transcripts or credentials. Test environments/models/wheels are local artifacts, not repository content.
+The current unit count is **324**. Release evidence is saved under ignored `.qa/release-1.2.2/`. Generated screenshots use synthetic state and contain no user transcripts or credentials. Test environments/models/wheels are local artifacts, not repository content.
 
 Build release packages from a clean exported commit using `scripts/build-deb`; `requirements.lock` pins vendored runtime wheels. Verify packaged and installed source/resource bytes, checksums, installed startup/Preferences/Help/shutdown and successful restart. Keep the full local guide and checksum alongside the latest deb. Publish only the reviewed artifacts tied to the release tag.
 
@@ -60,4 +60,4 @@ Build release packages from a clean exported commit using `scripts/build-deb`; `
 
 Primary target is Cinnamon/X11. Wayland focus/global-shortcut/window manipulation, ARM, fresh-machine dependency installation, full screen-reader acceptance and paid live remote transcription are not established by isolated tests. Hardware brightness, power, screenshots, real output/echo and optional installer behavior vary by desktop. Generated speech and private-bus controls do not establish physical hardware performance.
 
-See `DEVELOPMENT.rst` for dependency setup and test commands, `README.rst` for public usage, and `dist/dictadesk_1.2.0_changes-and-usage.md` for the complete local guide.
+See `DEVELOPMENT.rst` for dependency setup and test commands, `README.rst` for public usage, and `dist/dictadesk_1.2.2_changes-and-usage.md` for the complete local guide.
