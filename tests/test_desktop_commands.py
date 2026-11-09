@@ -55,6 +55,26 @@ class GrammarTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.TestCase):
+    def test_routine_completion_is_quiet_but_errors_are_retained(self):
+        for failure in (False, True):
+            finished = threading.Event()
+            messages = []
+            adapter = DesktopCommands(lambda callback: callback())
+
+            def done(message):
+                messages.append(message)
+                finished.set()
+
+            with patch.object(
+                adapter,
+                "volume",
+                side_effect=ValueError("Output unavailable") if failure else None,
+                return_value="Volume 50%.",
+            ):
+                adapter.execute("volume", ("set", 50), lambda: True, done)
+                self.assertTrue(finished.wait(2))
+            self.assertEqual(messages, ["Output unavailable" if failure else ""])
+
     def setUp(self):
         self.run = Mock()
         self.adapter = DesktopCommands(lambda callback: callback(), run=self.run)
@@ -148,7 +168,7 @@ class AdapterTests(unittest.TestCase):
                     expected_lock if kind == "lock" else (True,),
                 )
                 args[-1](bus, Mock())
-                done.assert_called_once()
+                done.assert_called_once_with("")
 
     def test_invalidated_command_never_calls_desktop(self):
         bus, done = Mock(), Mock()

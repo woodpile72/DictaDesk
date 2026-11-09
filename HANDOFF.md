@@ -2,6 +2,10 @@
 
 Updated 2026-11-08 for the 1.2.0 release preparation. Historical transfer notes and local checks are preserved in ignored `.qa/release-1.2.0/` rather than mixed into the current instructions.
 
+## Quiet command feedback
+
+Successful routine commands (search, audio/display/media/window actions, screenshots and clipboard copy/clear) complete without a system notification. Errors, unsupported/unknown commands, chooser prompts, listening-pause feedback and dictation clipboard-recovery notices remain. The beep/optional spoken acknowledgment and Preferences status remain. Empty completion messages mean quiet success; adapters keep error text explicit rather than guessing success from message strings.
+
 ## Local 1.2.2 development
 
 Added local-recognition web search with exact search/search for/search up prefixes. DuckDuckGo is the default provider; Google and Bing are selectable under Control → Web Search. Queries are encoded into HTTPS URLs and opened asynchronously in the desktop default browser, with existing generation/lock guards. Only query text reaches the chosen web service; audio remains with local recognition. Search arguments retain punctuation and are never treated as shell input or another action. Old settings default to DuckDuckGo. This is a local test build; 1.2.0 remains the published release.

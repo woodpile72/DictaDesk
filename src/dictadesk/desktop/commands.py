@@ -101,6 +101,9 @@ class DesktopCommands:
                         if kind not in handlers:
                             raise ValueError("Unsupported desktop command.")
                         message = handlers[kind](arguments, valid)
+                    # Routine success is visible in the desktop action itself.
+                    # Keep errors actionable without a popup for every command.
+                    message = ""
                 except ValueError as exc:
                     message = str(exc)
                 except Exception:
@@ -129,9 +132,7 @@ class DesktopCommands:
             def completed(conn, result):
                 try:
                     conn.call_finish(result)
-                    message = (
-                        "Screen lock requested." if kind == "lock" else "Screensaver activated."
-                    )
+                    message = ""
                 except GLib.Error:
                     message = "The desktop could not activate the screen lock or screensaver."
                 if valid():

@@ -104,14 +104,14 @@ def begin():
 
 
 def changed(message):
-    assert brightness[0] == 70 and message == "Brightness 70%.", message
+    assert brightness[0] == 70 and message == "", message
     adapter.execute(
         "media", ("Next",), lambda: True, lambda message: checked(lambda: media_done(message))
     )
 
 
 def media_done(message):
-    assert (PLAYER, "Next") in invocations and "sent" in message, (invocations, message)
+    assert (PLAYER, "Next") in invocations and message == "", (invocations, message)
     settings, key = adapter.notification_settings()
     adapter.dnd((True,), lambda: True)
     assert not settings.get_boolean(key)

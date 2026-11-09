@@ -80,7 +80,7 @@ class SearchTests(unittest.TestCase):
             self.assertEqual(start.call_args.args[0], "https://duckduckgo.com/?q=cats+%26+dogs")
             callback = start.call_args.args[3]
             callback(None, Mock())
-            done.assert_called_once_with("Search opened in your default browser.")
+            done.assert_called_once_with("")
             done.reset_mock()
             valid.return_value = False
             callback(None, Mock())

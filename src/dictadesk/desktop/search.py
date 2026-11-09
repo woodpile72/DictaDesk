@@ -18,9 +18,7 @@ def launch(query, engine, valid, done):
         try:
             success = Gio.AppInfo.launch_default_for_uri_finish(result)
             message = (
-                "Search opened in your default browser."
-                if success
-                else "The search could not be opened. Check your default browser."
+                "" if success else "The search could not be opened. Check your default browser."
             )
         except GLib.Error:
             message = "The search could not be opened. Check your default browser."

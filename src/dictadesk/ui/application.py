@@ -649,7 +649,7 @@ class Application(Adw.Application):
 
     def command_feedback(self, message, *, heard=None, query=None):
         details = diagnostic(heard, query) if heard is not None else ""
-        if self.notifications_enabled:
+        if message and self.notifications_enabled:
             note = Gio.Notification.new("Voice Commands")
             note.set_body(f"{message}\n{details}" if details else message)
             note.set_priority(Gio.NotificationPriority.LOW)
@@ -686,16 +686,12 @@ class Application(Adw.Application):
             clipboard = Gdk.Display.get_default().get_clipboard()
             if action == "clear":
                 cleared = clipboard.set_content(None)
-                completed(
-                    "Clipboard cleared. Last dictation retained."
-                    if cleared
-                    else "The clipboard could not be cleared."
-                )
+                completed("" if cleared else "The clipboard could not be cleared.")
             elif not value:
                 completed("No completed dictation is available.")
             elif action == "copy":
                 clipboard.set(value)
-                completed("Last dictation copied.")
+                completed("")
             else:
                 c = self.session
                 # End this activation before beginning the ordinary delivery

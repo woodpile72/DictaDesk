@@ -239,6 +239,8 @@ def done():
         patch.object(Gio.Notification, "new", return_value=note),
         patch.object(app, "send_notification") as send,
     ):
+        app.command_feedback("")
+        send.assert_not_called()
         app.command_feedback(
             "Application not found.", heard="Open Unknown!", query=("unknown",)
         )
