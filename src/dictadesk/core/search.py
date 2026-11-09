@@ -11,14 +11,33 @@ SEARCH_ENGINES = {
 }
 
 
-def search_query(text):
-    match = re.fullmatch(r"\s*search\b(?:\s+(?:for|up)\b)?(.*)", text, re.I | re.S)
-    query = match[1].strip() if match else ""
+# Accept ASR sentence boundaries between the command words without eating
+# meaningful query characters such as the leading dot in .NET.
+_SEPARATOR = r"(?:\s|[.,;:!?…](?=\s|$))*"
+_SEARCH = re.compile(
+    r"\s*search\b" + _SEPARATOR + r"(?:(?:for|up)\b" + _SEPARATOR + r")?(.*)", re.I | re.S
+)
+
+
+def clean_search_query(text):
+    # Sentence-final punctuation is commonly supplied by the recognizer.
+    # Preserve internal punctuation, decimals, domains, .NET, C++ and C#.
+    query = text.strip().rstrip(".,;:!?…").rstrip()
     return (
         query
         if 0 < len(query) <= 1000 and query.isprintable() and any(c.isalnum() for c in query)
         else None
     )
+
+
+def search_prompt(text):
+    match = _SEARCH.fullmatch(text)
+    return bool(match and not match[1].strip().strip(".,;:!?…").strip())
+
+
+def search_query(text):
+    match = _SEARCH.fullmatch(text)
+    return clean_search_query(match[1]) if match else None
 
 
 def search_url(engine, query):

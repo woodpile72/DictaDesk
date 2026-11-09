@@ -319,6 +319,20 @@ class AudioTests(unittest.TestCase):
         )
         self.assertTrue(gate.ready)
 
+    def test_longer_command_pause_preserves_words_after_a_thinking_gap(self):
+        blocks = [VOICE] * 3 + [QUIET] * 7 + [VOICE] * 3 + [QUIET] * 12
+        sequence = iter(blocks)
+        source = SimpleNamespace(read=lambda *_: next(sequence, None))
+        data = utterance(
+            source,
+            threading.Event(),
+            threshold=0.015,
+            deadline=float("inf"),
+            require_complete=True,
+            end_pause=1.2,
+        )
+        self.assertEqual(data, QUIET * 2 + b"".join(blocks))
+
     def test_bounded_utterance_and_silence_gating(self):
         def run(blocks, **kwargs):
             sequence = iter(blocks)
@@ -488,6 +502,70 @@ class CoordinatorTests(unittest.TestCase):
         self.hf.beep = lambda stop: self.assertEqual(active[0], 0)
         self.hf.stop.wait = lambda timeout: self.hf.stop.is_set()
         return active
+
+    def test_bare_search_waits_for_query_in_inline_and_two_step_modes(self):
+        for prefix in ("Search.", "Search for.", "Search up."):
+            for inline in (True, False):
+                with self.subTest(prefix=prefix, inline=inline):
+                    self.setUp()
+                    replies = ["Computer " + prefix] if inline else ["Computer", prefix]
+                    active = self.prepare(replies + ["Linux Mint."])
+                    actions = []
+
+                    def action(kind, arguments, generation, **kwargs):
+                        self.assertEqual(active[0], 0)
+                        actions.append((kind, arguments))
+                        self.hf.complete(generation)
+
+                    self.hf.desktop_action = action
+                    with patch(
+                        "dictadesk.core.handsfree.utterance", return_value=VOICE
+                    ) as capture:
+                        self.hf.run(0, self.hf.stop, self.session.preferences)
+                    self.assertEqual(actions, [("search", ("Linux Mint",))])
+                    self.assertEqual(capture.call_count, 2 if inline else 3)
+                    self.assertEqual(capture.call_args_list[0].kwargs["end_pause"], 1.0)
+                    self.assertEqual(capture.call_args.kwargs["end_pause"], 1.2)
+                    self.assertFalse(capture.call_args.kwargs["require_quiet"])
+                    self.feedback.assert_not_called()
+
+    def test_search_followup_is_discarded_after_suspension(self):
+        self.prepare([])
+        replies = iter(["Computer search.", "Linux Mint."])
+
+        def recognize(*args, **kwargs):
+            text = next(replies)
+            if text == "Linux Mint.":
+                self.hf.suspend()
+            return {"text": text}
+
+        self.session.recognizer.request.side_effect = recognize
+        self.hf.desktop_action = Mock()
+        with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
+            self.hf.run(0, self.hf.stop, self.session.preferences)
+        self.hf.desktop_action.assert_not_called()
+        self.launch.assert_not_called()
+
+    def test_search_followup_cancel_or_no_speech_never_runs_an_action(self):
+        for continuation in ("Cancel.", "", "..."):
+            with self.subTest(continuation=continuation):
+                self.setUp()
+                self.prepare(["Computer search.", continuation])
+                action = self.hf.desktop_action = Mock()
+                captures = [0]
+
+                def capture(*args, **kwargs):
+                    captures[0] += 1
+                    if captures[0] > 2:
+                        self.hf.stop.set()
+                        return b""
+                    return VOICE
+
+                with patch("dictadesk.core.handsfree.utterance", side_effect=capture):
+                    self.hf.run(0, self.hf.stop, self.session.preferences)
+                action.assert_not_called()
+                self.launch.assert_not_called()
+                self.feedback.assert_not_called()
 
     def test_wake_and_next_utterance_are_separate_and_local(self):
         active = self.prepare(["Computer", "open Calibre"])

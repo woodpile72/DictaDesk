@@ -158,6 +158,7 @@ def utterance(
     require_quiet=False,
     max_seconds=8,
     require_complete=False,
+    end_pause=0.5,
     gate=None,
     observe=None,
 ):
@@ -169,6 +170,7 @@ def utterance(
     # memory, scoped to this one utterance, never a saved microphone recording.
     preceding = bytearray(PRE_ROLL_SAMPLES * 2)
     audio_limit = min(int(max_seconds * RATE) + PRE_ROLL_SAMPLES, MAX_AUDIO_SECONDS * RATE) * 2
+    quiet_blocks = max(1, math.ceil(end_pause / BLOCK_SECONDS))
     voiced = quiet = 0
     armed = not require_quiet
     started = time.monotonic()
@@ -218,7 +220,7 @@ def utterance(
         else:
             preceding.extend(block)
             del preceding[: -PRE_ROLL_SAMPLES * 2]
-        if quiet >= 5:
+        if quiet >= quiet_blocks:
             complete = True
             break
         if len(audio) >= audio_limit:

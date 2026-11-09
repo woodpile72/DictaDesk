@@ -2,6 +2,10 @@
 
 Updated 2026-11-08 for the 1.2.0 release preparation. Historical transfer notes and local checks are preserved in ignored `.qa/release-1.2.0/` rather than mixed into the current instructions.
 
+## Search capture and punctuation follow-up
+
+Wake captures now require a 1.0-second ending pause, command/query captures 1.2 seconds (the low-level default remains 0.5 seconds for other callers). A bare search/search for/search up, including ASR punctuation, collects one bounded follow-up query for up to 10 seconds, with the configured beep and local Preferences status. It never executes the follow-up as another system command. No speech or cancel ends quietly; stale/suspended results cannot launch a browser. ASR sentence punctuation is removed from query endings while internal punctuation, .NET, C++, C#, decimals and addresses are retained.
+
 ## Quiet command feedback
 
 Successful routine commands (search, audio/display/media/window actions, screenshots and clipboard copy/clear) complete without a system notification. Errors, unsupported/unknown commands, chooser prompts, listening-pause feedback and dictation clipboard-recovery notices remain. The beep/optional spoken acknowledgment and Preferences status remain. Empty completion messages mean quiet success; adapters keep error text explicit rather than guessing success from message strings.

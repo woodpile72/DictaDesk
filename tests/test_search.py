@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
-from dictadesk.core.search import SEARCH_ENGINES, search_url
+from dictadesk.core.search import SEARCH_ENGINES, search_url, search_prompt
 from dictadesk.core.settings import Preferences, SettingsStore
 from dictadesk.core.voice_commands import command, wake_activation
 from dictadesk.desktop.search import launch
@@ -36,6 +36,22 @@ class SearchTests(unittest.TestCase):
             "search " + "x" * 1001,
         ):
             self.assertEqual(command(text), ("unknown", ()), text)
+
+    def test_asr_sentence_punctuation_is_removed_without_damaging_query_syntax(self):
+        for text, expected in (
+            ("Search Linux Mint.", "Linux Mint"),
+            ("Search for Linux Mint?!", "Linux Mint"),
+            ("Search. For Linux Mint.", "Linux Mint"),
+            ("Search up .NET 8.0.", ".NET 8.0"),
+            ("Search C++.", "C++"),
+            ("Search C#.", "C#"),
+            ("Search example.com/path?x=1&y=2.", "example.com/path?x=1&y=2"),
+        ):
+            self.assertEqual(command(text), ("search", (expected,)), text)
+        for text in ("Search.", "Search for.", "Search up!", "Search. For."):
+            self.assertTrue(search_prompt(text), text)
+        for text in ("research", "search linux mint.", "search " + "x" * 1001):
+            self.assertFalse(search_prompt(text), text)
 
     def test_query_is_data_and_only_one_action(self):
         query = "C++ & C# café? q=1 #tag $(touch nope); lock screen"

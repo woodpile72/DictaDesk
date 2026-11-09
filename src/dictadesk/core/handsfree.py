@@ -8,7 +8,8 @@ import time
 from datetime import datetime, timedelta
 
 from ..audio.handsfree import AdaptiveGate, MemoryInput, acknowledge, utterance
-from .voice_commands import wake_activation, command, choice_number
+from .voice_commands import wake_activation, command, choice_number, words
+from .search import clean_search_query, search_prompt
 from .diagnostics import event, failure
 
 
@@ -150,6 +151,14 @@ class HandsFree:
                 self.changed()
                 if matched:
                     self.wake_detected(inline)
+
+        self.session.dispatch(update)
+
+    def search_status(self, generation, message):
+        def update():
+            if self.valid(generation):
+                self.last_check = message
+                self.changed()
 
         self.session.dispatch(update)
 
@@ -312,6 +321,7 @@ class HandsFree:
                         deadline=float("inf"),
                         require_quiet=True,
                         max_seconds=6,
+                        end_pause=1.0,
                         require_complete=True,
                         gate=gate,
                         observe=lambda *values: self.observe_audio(generation, *values),
@@ -385,13 +395,51 @@ class HandsFree:
                             deadline=deadline,
                             require_quiet=True,
                             require_complete=True,
+                            end_pause=1.2,
                             gate=gate,
                             observe=lambda *values: self.observe_audio(generation, *values),
                         )
                     text = self.recognize(data, generation, stop)
                 if not self.valid(generation):
                     return
-                kind, query = command(text, prefs)
+                if search_prompt(text):
+                    # A natural pause after “search” is a request for a query,
+                    # not an unrecognized command. One bounded follow-up only.
+                    self.search_status(generation, "Listening for your search phrase.")
+                    if prefs.command_sound:
+                        try:
+                            self.beep(stop)
+                        except Exception:
+                            pass
+                    if not self.valid(generation) or stop.wait(0.4):
+                        return
+                    with self.source(prefs) as source:
+                        data = utterance(
+                            source,
+                            stop,
+                            threshold=prefs.silence_threshold,
+                            deadline=time.monotonic() + 10,
+                            require_quiet=False,
+                            require_complete=True,
+                            end_pause=1.2,
+                            gate=gate,
+                            observe=lambda *values: self.observe_audio(generation, *values),
+                        )
+                    continuation = self.recognize(data, generation, stop)
+                    if not self.valid(generation):
+                        return
+                    value = clean_search_query(continuation)
+                    if words(continuation) == ("cancel",) or not value:
+                        kind, query = "cancel", ()
+                        self.search_status(
+                            generation,
+                            "Search canceled." if value else "No search phrase heard.",
+                        )
+                    else:
+                        kind, query = "search", (value,)
+                        self.search_status(generation, "Search phrase received.")
+                else:
+                    kind, query = command(text, prefs)
                 event(
                     "handsfree.command_result",
                     generation=generation,
