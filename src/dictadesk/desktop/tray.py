@@ -224,9 +224,6 @@ class Tray:
                 and (not c.busy or (self.app.handsfree and self.app.handsfree.enabled)),
             ),
             8: ("About DictaDesk", "about", True),
-            9: ("Dictation Help…", "usage", True),
-            11: ("Control Help…", "command-help", True),
-            12: ("Speech Help…", "tts-help", True),
             10: (
                 "Resume Voice Commands Now"
                 if self.app.handsfree and self.app.handsfree.paused
@@ -234,19 +231,18 @@ class Tray:
                 "pause-commands",
                 bool(self.app.handsfree and self.app.handsfree.enabled and not c.busy),
             ),
-            13: (self.app.countdown.status(), "timer-status", True),
-            14: (
-                "Cancel Timer",
-                "timer-cancel",
-                self.app.countdown.exists or bool(self.app.countdown.problem),
+            **(
+                {14: ("Cancel timer", "timer-cancel", True)}
+                if self.app.countdown.active or self.app.alarm_pending or self.app.alarm.busy
+                else {}
             ),
             5: ("Quit", "quit", True),
         }
 
-    def props(self, ident):
+    def props(self, ident, rows=None):
         if ident == 0:
             return {"children-display": GLib.Variant("s", "submenu")}
-        label, action, enabled = self.rows()[ident]
+        label, action, enabled = (self.rows() if rows is None else rows)[ident]
         return {
             "label": GLib.Variant("s", label),
             "enabled": GLib.Variant("b", enabled),
@@ -262,29 +258,37 @@ class Tray:
 
     def menu_call(self, connection, sender, path, interface, method, args, invocation):
         values = args.unpack()
+        rows = self.rows()
         if method == "GetLayout":
             parent, depth, names = values
-            if parent not in (0, *self.rows()):
+            if parent not in (0, *rows):
                 invocation.return_dbus_error(
                     "com.canonical.dbusmenu.Error.InvalidMenuItem", "Unknown item"
                 )
                 return
             children = (
-                [GLib.Variant("(ia{sv}av)", (i, self.props(i), [])) for i in self.rows()]
+                [GLib.Variant("(ia{sv}av)", (i, self.props(i, rows), [])) for i in rows]
                 if parent == 0 and depth != 0
                 else []
             )
             reply = GLib.Variant(
-                "(u(ia{sv}av))", (self.revision, (parent, self.props(parent), children))
+                "(u(ia{sv}av))", (self.revision, (parent, self.props(parent, rows), children))
             )
         elif method == "GetGroupProperties":
             ids, names = values
             reply = GLib.Variant(
-                "(a(ia{sv}))", ([(i, self.props(i)) for i in ids if i in self.rows()],)
+                "(a(ia{sv}))", ([(i, self.props(i, rows)) for i in ids if i in rows],)
             )
         elif method == "GetProperty":
             ident, prop = values
-            reply = GLib.Variant("(v)", (self.props(ident).get(prop, GLib.Variant("s", "")),))
+            if ident not in (0, *rows):
+                invocation.return_dbus_error(
+                    "com.canonical.dbusmenu.Error.InvalidMenuItem", "Unknown item"
+                )
+                return
+            reply = GLib.Variant(
+                "(v)", (self.props(ident, rows).get(prop, GLib.Variant("s", "")),)
+            )
         elif method == "Event":
             self.event(values[0], values[1])
             reply = None

@@ -626,6 +626,7 @@ class Application(Adw.Application):
             c.preferences.hands_free,
             bool(self.handsfree and self.handsfree.override_disabled),
             c.preferences.backend,
+            self.countdown.active or self.alarm_pending or self.alarm.busy,
         )
         if self.tray and key != self.last_tray:
             self.tray.update(shape, title, c.preferences.symbolic)
@@ -674,6 +675,24 @@ class Application(Adw.Application):
         self.alarm.wait(cancelled)
         self.speech.wait_playback(cancelled)
 
+    def confirm_timer(self, seconds):
+        prefs = self.session.preferences
+        if not prefs.tts_enabled or not self.speech.ready(prefs):
+            return
+        phrase = f"A timer has been set for {describe(seconds)}."
+
+        def suspend():
+            self.alarm.stop()
+            self.handsfree.suspend()
+
+        def join():
+            self.alarm.wait(self.speech.preview_cancel)
+            self.handsfree.join()
+
+        self.speech.preview(
+            replace(prefs, tts_phrase=phrase), suspend=suspend, join=join, confirmation=True
+        )
+
     def timer_status(self):
         if self.notifications_enabled:
             note = Gio.Notification.new("DictaDesk Timer")
@@ -701,6 +720,8 @@ class Application(Adw.Application):
     def tick_countdown(self):
         if self.countdown.poll():
             self.alarm_pending = True
+            if self.speech.confirming:
+                self.speech.stop_playback()
             if self.notifications_enabled:
                 note = Gio.Notification.new("Timer finished")
                 note.set_body(f"Your {describe(self.countdown.seconds)} timer has finished.")
@@ -754,6 +775,7 @@ class Application(Adw.Application):
                     self.countdown.start(arguments[1])
                     self.withdraw_notification("countdown")
                     completed("")
+                    self.confirm_timer(arguments[1])
                 elif arguments[0] == "status":
                     self.timer_status()
                     completed("")

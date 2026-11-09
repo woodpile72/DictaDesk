@@ -101,9 +101,10 @@ def registered():
     def got(conn, result):
         try:
             revision, layout = conn.call_finish(result).unpack()
-            assert layout[0] == 0 and len(layout[2]) == 12, layout
+            assert layout[0] == 0 and len(layout[2]) == 7, layout
             labels = [node[1]["label"] for node in layout[2]]
-            assert "No timer running." in labels and "Cancel Timer" in labels
+            assert "No timer running." not in labels and "Cancel timer" not in labels
+            assert not any("Help" in label for label in labels)
             assert "Last Transcript…" not in labels and "Quit" in labels
             assert "Copy Uninserted Text" not in labels
             later(open_preferences)

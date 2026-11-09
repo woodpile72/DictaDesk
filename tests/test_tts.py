@@ -177,6 +177,18 @@ class SpeechOutputTests(unittest.TestCase):
         self.speech.prepare_thread.join(2)
         self.assertFalse(self.worker.loaded)
 
+    def test_timer_confirmation_synthesizes_requested_duration_without_saving_phrase(self):
+        original = Preferences(tts_enabled=True)
+        prefs = replace(original, tts_phrase="A timer has been set for 24 minutes.")
+        self.speech.preview(prefs, confirmation=True)
+        self.speech.preview_thread.join(2)
+        self.assertFalse(self.speech.previewing)
+        self.assertFalse(self.speech.confirming)
+        self.assertEqual(self.worker.requests[-1]["text"], prefs.tts_phrase)
+        self.assertEqual(original.tts_phrase, "Hello")
+        self.assertEqual(self.speech.notice, "Timer confirmation finished.")
+        self.output.assert_called_once()
+
     def test_unavailable_voice_and_output_errors_are_nonblocking(self):
         self.store.ready.return_value = False
         self.assertFalse(self.speech.acknowledge(Preferences(), threading.Event()))

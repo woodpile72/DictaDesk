@@ -21,6 +21,35 @@ def run():
         assert app.preferences_dialog.timer_status.is_ancestor(
             app.preferences_dialog.pages["commands"]
         )
+        with (
+            patch.object(app.speech, "preview") as speak,
+            patch.object(app.speech, "ready", return_value=True),
+        ):
+            app.session.preferences.tts_enabled = False
+            app.confirm_timer(1440)
+            speak.assert_not_called()
+            app.session.preferences.tts_enabled = True
+            app.confirm_timer(1440)
+            assert speak.call_args.args[0].tts_phrase == "A timer has been set for 24 minutes."
+            assert speak.call_args.kwargs["confirmation"]
+            speak.reset_mock()
+            with patch.object(app.speech, "ready", return_value=False):
+                app.confirm_timer(60)
+                speak.assert_not_called()
+            app.session.preferences.tts_enabled = False
+        tray = object.__new__(Tray)
+        tray.app = app
+        invocation = Mock()
+        tray.menu_call(
+            None,
+            None,
+            None,
+            None,
+            "GetProperty",
+            GLib.Variant("(is)", (14, "label")),
+            invocation,
+        )
+        invocation.return_dbus_error.assert_called_once()
         clock = [100]
         app.countdown.clock = lambda: clock[0]
         with (
@@ -29,7 +58,9 @@ def run():
         ):
             app.run_desktop_command("timer", ("set", 1440), 0)
         assert app.countdown.active and app.countdown.remaining() == 1440
-        assert "24 minutes" in Tray.rows(Mock(app=app))[13][0]
+        rows = Tray.rows(Mock(app=app))
+        assert 13 not in rows and rows[14][0] == "Cancel timer"
+        assert not any("Help" in row[0] for row in rows.values())
         app.notifications_enabled = True
         with (
             patch.object(app, "send_notification") as notify,
@@ -47,7 +78,11 @@ def run():
             with patch.object(
                 type(app.session), "busy", new_callable=lambda: property(lambda self: True)
             ):
-                app.tick_countdown()
+                app.speech.confirming = True
+                with patch.object(app.speech, "stop_playback") as stop_confirmation:
+                    app.tick_countdown()
+                    stop_confirmation.assert_called_once()
+                app.speech.confirming = False
                 sound.assert_not_called()
             notify.assert_called_once()
             app.tick_countdown()
@@ -57,6 +92,7 @@ def run():
             assert app.countdown.elapsed
             app.cancel_timer()
             assert not app.countdown.exists and not app.alarm_pending
+            assert 14 not in Tray.rows(Mock(app=app))
         print(
             "PASS Timer: local voice routing, tray time left, preferences status, expiry once, sound defers during dictation, cancel/dismiss"
         )

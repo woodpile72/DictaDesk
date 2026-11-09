@@ -58,6 +58,7 @@ class SpeechOutput:
         self.downloading = False
         self.removing = False
         self.previewing = False
+        self.confirming = False
         self.preparing = False
         self.speaking = False
         self.closing = False
@@ -162,11 +163,23 @@ class SpeechOutput:
                     "Speech output did not release the audio device. Try recording again."
                 )
 
-    def preview(self, prefs, *, suspend=lambda: None, join=lambda: None, finished=lambda: None):
+    def preview(
+        self,
+        prefs,
+        *,
+        suspend=lambda: None,
+        join=lambda: None,
+        finished=lambda: None,
+        confirmation=False,
+    ):
         if self.closing or self.previewing or self.downloading or self.removing:
             return
         self.previewing = True
-        self.problem, self.notice = "", "Preparing voice preview…"
+        self.confirming = confirmation
+        self.problem, self.notice = (
+            "",
+            "Speaking timer confirmation…" if confirmation else "Preparing voice preview…",
+        )
         self.preview_cancel = stop = threading.Event()
         prefs = replace(prefs)
         suspend()
@@ -176,14 +189,24 @@ class SpeechOutput:
             try:
                 join()
                 self.speak(prefs, stop)
-                self.notice = "Voice preview finished."
+                self.notice = (
+                    "Timer confirmation finished."
+                    if confirmation
+                    else "Voice preview finished."
+                )
             except InterruptedError:
-                self.notice = "Voice preview stopped."
+                self.notice = (
+                    "Timer confirmation stopped." if confirmation else "Voice preview stopped."
+                )
             except Exception as exc:
-                failure("speech.preview_failed", exc)
+                failure(
+                    "speech.confirmation_failed" if confirmation else "speech.preview_failed",
+                    exc,
+                )
                 self.problem = str(exc)
             finally:
                 self.previewing = False
+                self.confirming = False
                 self.dispatch(finished)
                 self.notify()
 
