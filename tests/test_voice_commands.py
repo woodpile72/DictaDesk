@@ -514,6 +514,7 @@ class CoordinatorTests(unittest.TestCase):
         for text, kind, arguments in (
             ("lock screen", "lock", ()),
             ("screensaver", "screensaver", ()),
+            ("search up Linux Mint", "search", ("Linux Mint",)),
             ("volume up 15%", "volume", ("up", 15)),
             ("volume down fifty percent", "volume", ("down", 50)),
             ("volume mute", "volume", ("mute",)),

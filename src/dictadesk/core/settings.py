@@ -41,6 +41,7 @@ class Preferences:
     tts_phrase: str = "Hello"
     volume_step: int = 5
     brightness_step: int = 5
+    search_engine: str = "duckduckgo"
     local_model: str = "parakeet"
     shortcut: str = "<Super>v"
     continuous_shortcut: str = "<Super><Shift>v"
@@ -70,6 +71,10 @@ class Preferences:
     def validate(self):
         if self.backend not in ("local", "openai"):
             raise ValueError("Choose a supported backend.")
+        from .search import SEARCH_ENGINES
+
+        if not isinstance(self.search_engine, str) or self.search_engine not in SEARCH_ENGINES:
+            raise ValueError("Choose a supported search engine.")
         from .tts import ENGINES, VOICES
 
         if (

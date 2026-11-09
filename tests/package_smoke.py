@@ -19,7 +19,7 @@ from Xlib.ext import xtest  # noqa: E402
 import onnxruntime  # noqa: E402
 import moonshine_voice  # noqa: E402, F401
 
-assert __version__ == os.environ.get("DICTADESK_EXPECT_VERSION", "1.2.0")
+assert __version__ == os.environ.get("DICTADESK_EXPECT_VERSION", "1.2.2")
 assert onnxruntime.get_available_providers()
 defaults = SettingsStore().read()
 assert defaults.local_model == "parakeet"
@@ -158,7 +158,7 @@ try:
     assert not owns()
     assert not list(model_directory().rglob("*.onnx"))
     print(
-        "PASS installed 1.2.0: runtime imports, tray-only startup, About, Preferences, reference window, tray and clean shutdown"
+        f"PASS installed {__version__}: runtime imports, tray-only startup, About, Preferences, reference window, tray and clean shutdown"
     )
 finally:
     if process.poll() is None:

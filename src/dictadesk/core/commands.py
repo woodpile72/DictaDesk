@@ -14,6 +14,7 @@ CATEGORIES = (
     "Screenshots",
     "Window Management",
     "Applications",
+    "Web Search",
     "Clipboard",
     "Dictation Formatting",
 )
@@ -65,7 +66,7 @@ class Command:
     phrases: tuple
     handler: str
     arguments: tuple = ()
-    parameter: str = ""  # percentage, optional_percentage, application
+    parameter: str = ""  # percentage, optional_percentage, application, query
     default: str = ""
     examples: tuple = ()
     capability: str = ""
@@ -342,6 +343,21 @@ REGISTRY = (
         capability="applications",
     ),
     entry(
+        "search",
+        "Web Search",
+        "Search the web",
+        "Open the query in your default browser using the search engine selected in Control. Only the search text goes to that provider; recognition stays local.",
+        ("search for", "search up", "search"),
+        "search",
+        parameter="query",
+        examples=(
+            "Search Linux Mint",
+            "Search for Packers schedule",
+            "Search up sourdough bread",
+        ),
+        capability="search",
+    ),
+    entry(
         "pause-commands",
         "Audio",
         "Pause voice commands",
@@ -408,6 +424,11 @@ def registry():
 
 def recognize(text, preferences=None):
     tokens = words(text)
+    if tokens[:1] == ("search",):
+        from .search import search_query
+
+        query = search_query(text)
+        return ("search", (query,)) if query else ("unknown", ())
     # Observed ASR substitutions for this single command. Match only the
     # entire utterance; never rewrite application names or arbitrary sentences.
     if tokens in {

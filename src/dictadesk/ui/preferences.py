@@ -337,6 +337,19 @@ class PreferencesDialog:
                 halign=Gtk.Align.START,
             )
         )
+        from ..core.search import SEARCH_ENGINES
+
+        search = Adw.PreferencesGroup(
+            title="Web Search",
+            description="Say search, search for, or search up, followed by a phrase. Opens your default browser. Search text is sent to the selected provider; audio recognition stays local.",
+        )
+        self.pages["commands"].add(search)
+        self.combo(
+            search,
+            "search_engine",
+            "Search Engine",
+            [(key, value[0]) for key, value in SEARCH_ENGINES.items()],
+        )
         self.spin(self.voice_group, "volume_step", "Default Volume Adjustment (%)", 1, 100)
         self.spin(
             self.voice_group, "brightness_step", "Default Brightness Adjustment (%)", 1, 100

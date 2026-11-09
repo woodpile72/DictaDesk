@@ -398,6 +398,13 @@ class DesktopCommands:
         """Read-only availability for help. Failures stay visible, never succeed silently."""
         result = {"applications": "", "clipboard": "", "format": "", "commands": ""}
         try:
+            browser = Gio.AppInfo.get_default_for_uri_scheme("https")
+            result["search"] = (
+                "" if browser else "Choose a default web browser in your desktop settings."
+            )
+        except GLib.Error:
+            result["search"] = "The default web browser could not be checked."
+        try:
             applications = Gio.AppInfo.get_all()
             for role in APPLICATION_ROLES:
                 key = "application-" + role.ident

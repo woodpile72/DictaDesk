@@ -47,6 +47,17 @@ def start():
 
 def preferences():
     p = app.preferences_dialog
+    engine, choices = p.controls["search_engine"]
+    assert choices[engine.get_selected()] == "duckduckgo"
+    assert engine.is_ancestor(p.pages["commands"])
+    engine.set_selected(choices.index("google"))
+    assert app.session.preferences.search_engine == "duckduckgo", "Unsaved choice leaked"
+    with (
+        patch("dictadesk.desktop.search.launch") as search,
+        patch.object(app.handsfree, "valid", return_value=True),
+    ):
+        app.run_desktop_command("search", ("Linux Mint",), 0)
+        assert search.call_args.args[:2] == ("Linux Mint", "duckduckgo")
     assert p.voice_group.get_visible()
     assert p.voice_banner_group.get_visible()
     assert p.voice_banner.get_label() == "Experimental"
@@ -93,6 +104,7 @@ def preferences():
 
     def saved(prefs, key, close):
         assert prefs.hands_free and prefs.wake_phrase == "Hello Desk" and prefs.command_sound
+        assert prefs.search_engine == "google"
         close()
 
     with patch.object(app, "save_preferences", side_effect=saved):

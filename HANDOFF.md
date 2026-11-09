@@ -2,10 +2,14 @@
 
 Updated 2026-11-08 for the 1.2.0 release preparation. Historical transfer notes and local checks are preserved in ignored `.qa/release-1.2.0/` rather than mixed into the current instructions.
 
+## Local 1.2.2 development
+
+Added local-recognition web search with exact search/search for/search up prefixes. DuckDuckGo is the default provider; Google and Bing are selectable under Control → Web Search. Queries are encoded into HTTPS URLs and opened asynchronously in the desktop default browser, with existing generation/lock guards. Only query text reaches the chosen web service; audio remains with local recognition. Search arguments retain punctuation and are never treated as shell input or another action. Old settings default to DuckDuckGo. This is a local test build; 1.2.0 remains the published release.
+
 ## Current state and authorization
 
-- Version 1.2.0, Cinnamon/X11, amd64, Python 3.12, GTK4 and libadwaita.
-- The user explicitly authorized completing checks and publishing this release.
+- Local version 1.2.2; published version 1.2.0. Cinnamon/X11, amd64, Python 3.12, GTK4 and libadwaita.
+- The user authorized publication of 1.2.0, which is complete. Later local builds require a new publication request.
 - Future local builds are authorized to reinstall the deb and restart the app. Quit gracefully first; verify the installed source and new process.
 - Do not mention or promote Control or Speech in the public release title or notes. Keep public release notes and commit messages generic. The comprehensive local changes/usage guide in `dist/` explains all features.
 - Never send announcements to other people unless explicitly requested.

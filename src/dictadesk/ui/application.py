@@ -671,6 +671,11 @@ class Application(Adw.Application):
 
         if not valid():
             return
+        if kind == "search":
+            from ..desktop.search import launch
+
+            launch(arguments[0], self.session.preferences.search_engine, valid, completed)
+            return
         if kind == "pause-commands":
             self.handsfree.pause(arguments[0])
             self.command_feedback(self.handsfree.problem)
