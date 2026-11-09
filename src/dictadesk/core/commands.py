@@ -15,6 +15,7 @@ CATEGORIES = (
     "Window Management",
     "Applications",
     "Web Search",
+    "Timers",
     "Clipboard",
     "Dictation Formatting",
 )
@@ -358,6 +359,62 @@ REGISTRY = (
         capability="search",
     ),
     entry(
+        "timer-set",
+        "Timers",
+        "Set a timer",
+        "Set one local timer from 1 second to 24 hours. See time left or cancel it in the tray. An active timer is not replaced silently.",
+        (
+            "set a timer for",
+            "set a timer",
+            "set timer for",
+            "set timer",
+            "start a timer for",
+            "start a timer",
+        ),
+        "timer",
+        ("set",),
+        parameter="timer_duration",
+        examples=(
+            "Set a timer for 24 minutes",
+            "Set a timer for twenty-four minutes",
+            "Set a timer for one hour and thirty minutes",
+        ),
+        capability="timer",
+    ),
+    entry(
+        "timer-status",
+        "Timers",
+        "Time remaining",
+        "Show the remaining countdown time.",
+        (
+            "how much time is left",
+            "how much time is left on the timer",
+            "how much time left",
+            "time left",
+            "timer status",
+        ),
+        "timer",
+        ("status",),
+        capability="timer",
+    ),
+    entry(
+        "timer-cancel",
+        "Timers",
+        "Cancel timer",
+        "Cancel the countdown or dismiss its finished alarm.",
+        (
+            "cancel the timer",
+            "cancel timer",
+            "stop the timer",
+            "stop timer",
+            "stop the alarm",
+            "stop alarm",
+        ),
+        "timer",
+        ("cancel",),
+        capability="timer",
+    ),
+    entry(
         "pause-commands",
         "Audio",
         "Pause voice commands",
@@ -452,6 +509,13 @@ def recognize(text, preferences=None):
             if tokens[: len(prefix)] != prefix:
                 continue
             rest = tokens[len(prefix) :]
+            if spec.parameter == "timer_duration":
+                from .countdown import duration
+
+                seconds = None if numeric_invalid or "%" in raw else duration(rest)
+                if seconds:
+                    return spec.handler, spec.arguments + (seconds,)
+                continue
             if spec.parameter == "application":
                 if rest:
                     return spec.handler, rest

@@ -13,6 +13,8 @@ from ..core.session import Session
 from ..audio.speech import SpeechOutput
 from ..core.transcript import has_content
 from ..core.handsfree import HandsFree
+from ..core.countdown import Countdown, describe
+from ..audio.alarm import Alarm
 from ..core.application_roles import application_role
 from ..core.voice_commands import diagnostic, exact_application_match, match_applications
 from ..core.diagnostics import event, failure
@@ -60,6 +62,10 @@ class Application(Adw.Application):
         self.escape_problem = ""
         self.shutting_down = False
         self.timer = None
+        self.countdown = Countdown()
+        self.alarm = Alarm()
+        self.alarm_pending = False
+        self.countdown_view = None
         self.last_tray = None
         self.pending_start = None
         self.handsfree = None
@@ -92,6 +98,8 @@ class Application(Adw.Application):
             "usage": self.show_usage,
             "command-help": lambda: self.show_usage("commands"),
             "tts-help": lambda: self.show_usage("tts"),
+            "timer-status": self.timer_status,
+            "timer-cancel": self.cancel_timer,
             "quit": self.request_quit,
             "recover": self.recover,
         }
@@ -122,8 +130,8 @@ class Application(Adw.Application):
             return
         self.session = self.session_factory(self.dispatch, self.refresh, self.deliver)
         self.speech = SpeechOutput(self.dispatch, self.refresh)
-        self.session.before_operation = self.speech.stop_playback
-        self.session.wait_for_output = self.speech.wait_playback
+        self.session.before_operation = self.stop_outputs
+        self.session.wait_for_output = self.wait_outputs
         self.handsfree = HandsFree(
             self.session,
             self.refresh,
@@ -132,7 +140,7 @@ class Application(Adw.Application):
             desktop_action=self.run_desktop_command,
             capture_destination=self.capture_command_destination,
             speech_acknowledge=self.speech.acknowledge,
-            output_busy=lambda: self.speech.previewing,
+            output_busy=lambda: self.speech.previewing or self.alarm_pending or self.alarm.busy,
         )
         self.session.handsfree = self.handsfree
         self.session.stream_delivered = self.deliver_segment
@@ -508,6 +516,7 @@ class Application(Adw.Application):
             self.session.save_preferences(
                 prefs, lambda: setattr(self.handsfree, "override_disabled", False)
             )
+        self.tick_countdown()
         self.handsfree.tick()
         voice_view = (
             self.handsfree.state,
@@ -607,6 +616,8 @@ class Application(Adw.Application):
             elif state in ("loading", "unavailable"):
                 shape = state
                 title = self.handsfree.problem or "Loading local voice commands"
+        if self.countdown.exists:
+            title += " · " + self.countdown.status()
         key = (
             shape,
             title,
@@ -655,6 +666,72 @@ class Application(Adw.Application):
             note.set_priority(Gio.NotificationPriority.LOW)
             self.send_notification("voice-commands", note)
 
+    def stop_outputs(self):
+        self.alarm.stop()
+        self.speech.stop_playback()
+
+    def wait_outputs(self, cancelled):
+        self.alarm.wait(cancelled)
+        self.speech.wait_playback(cancelled)
+
+    def timer_status(self):
+        if self.notifications_enabled:
+            note = Gio.Notification.new("DictaDesk Timer")
+            note.set_body(self.countdown.status())
+            if self.countdown.exists:
+                note.add_button("Cancel Timer", "app.timer-cancel")
+            try:
+                self.send_notification("countdown", note)
+            except GLib.Error:
+                pass
+
+    def cancel_timer(self):
+        self.alarm_pending = False
+        self.alarm.stop()
+        self.alarm.problem = ""
+        try:
+            self.countdown.cancel()
+            self.withdraw_notification("countdown")
+        except OSError:
+            self.command_feedback(
+                "The timer could not be cleared from disk. Check its saved state before restarting."
+            )
+        self.refresh()
+
+    def tick_countdown(self):
+        if self.countdown.poll():
+            self.alarm_pending = True
+            if self.notifications_enabled:
+                note = Gio.Notification.new("Timer finished")
+                note.set_body(f"Your {describe(self.countdown.seconds)} timer has finished.")
+                note.set_priority(Gio.NotificationPriority.URGENT)
+                note.add_button("Dismiss", "app.timer-cancel")
+                try:
+                    self.send_notification("countdown", note)
+                except GLib.Error:
+                    pass
+        if self.alarm.busy and (self.session.busy or self.speech.previewing):
+            self.alarm.stop()
+        if self.alarm_pending:
+            if self.handsfree:
+                self.handsfree.suspend()
+            thread = self.handsfree.thread if self.handsfree else None
+            if (
+                not self.session.busy
+                and not self.speech.previewing
+                and not self.speech.speaking
+                and not (thread and thread.is_alive())
+            ):
+                self.alarm_pending = False
+                self.alarm.start()
+        if self.alarm.problem:
+            self.command_feedback(self.alarm.problem)
+            self.alarm.problem = ""
+        view = (self.countdown.status(), self.alarm_pending, self.alarm.busy)
+        if view != self.countdown_view:
+            self.countdown_view = view
+            self.refresh()
+
     def capture_command_destination(self):
         return self.destinations.capture() if self.destinations else Target(None)
 
@@ -670,6 +747,22 @@ class Application(Adw.Application):
                 self.handsfree.complete(generation)
 
         if not valid():
+            return
+        if kind == "timer":
+            try:
+                if arguments[0] == "set":
+                    self.countdown.start(arguments[1])
+                    self.withdraw_notification("countdown")
+                    completed("")
+                elif arguments[0] == "status":
+                    self.timer_status()
+                    completed("")
+                else:
+                    self.cancel_timer()
+                    completed("")
+            except (OSError, ValueError) as exc:
+                completed(str(exc))
+            self.refresh()
             return
         if kind == "search":
             from ..desktop.search import launch
@@ -1161,6 +1254,8 @@ class Application(Adw.Application):
         if self.shutting_down:
             return
         self.shutting_down = True
+        self.alarm_pending = False
+        self.alarm.stop()
         self.speech.stop_playback()
         self.desktop_commands.close()
         if self.screen_lock:
@@ -1175,6 +1270,9 @@ class Application(Adw.Application):
             self.keyboard = None
 
         def done():
+            if self.alarm.busy:
+                GLib.timeout_add(50, lambda: (done(), False)[1])
+                return
             if self.tray:
                 self.tray.close()
             if self.timer:

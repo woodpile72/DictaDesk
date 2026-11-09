@@ -397,7 +397,13 @@ class DesktopCommands:
 
     def probe(self):
         """Read-only availability for help. Failures stay visible, never succeed silently."""
-        result = {"applications": "", "clipboard": "", "format": "", "commands": ""}
+        result = {
+            "timer": "",
+            "applications": "",
+            "clipboard": "",
+            "format": "",
+            "commands": "",
+        }
         try:
             browser = Gio.AppInfo.get_default_for_uri_scheme("https")
             result["search"] = (

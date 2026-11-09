@@ -2,6 +2,14 @@
 
 Updated 2026-11-08 for the 1.2.0 release preparation. Historical transfer notes and local checks are preserved in ignored `.qa/release-1.2.0/` rather than mixed into the current instructions.
 
+## Local countdown timer
+
+Control supports set a timer for 24 minutes, spoken/compound durations, how much time is left, and cancel/stop timer. One timer is supported, 1 second to 24 hours. An active timer is not silently replaced. The tray shows remaining time and Cancel Timer; Control preferences show timer state too. Status requests show a notification; routine setting/canceling stays quiet. Expiry sends one urgent notification with Dismiss and plays a short (~6-second) local alarm. No new dependency/model/cloud service is used.
+
+State is saved atomically/private under XDG state `dictadesk/timer.json`; it stores numeric time values, never voice text. CLOCK_BOOTTIME handles suspend and same-boot clock changes; a wall deadline restores across reboots. A timer that elapsed while the app was closed alerts once when reopened. DictaDesk must be running to alert; it does not wake a suspended computer. Completed timers are persisted to avoid duplicate expiry alarms on every restart.
+
+Alarm output waits for dictation/voice preview and background capture to stop, suspends hands-free during the short sound, and is stopped/joined before recording or interpreter shutdown. Playback failure retains the finished timer and reports the output issue. Recognition, grammar, restart/expiry/cancel, fake-clock and mocked-output tests are isolated; real speaker acceptance is for the user.
+
 ## Search capture and punctuation follow-up
 
 Wake captures now require a 1.0-second ending pause, command/query captures 1.2 seconds (the low-level default remains 0.5 seconds for other callers). A bare search/search for/search up, including ASR punctuation, collects one bounded follow-up query for up to 10 seconds, with the configured beep and local Preferences status. It never executes the follow-up as another system command. No speech or cancel ends quietly; stale/suspended results cannot launch a browser. ASR sentence punctuation is removed from query endings while internal punctuation, .NET, C++, C#, decimals and addresses are retained.

@@ -192,10 +192,18 @@ class SpeechPreferences:
         def finished():
             self.app.handsfree.resume_at = time.monotonic() + 1
 
+        def suspend():
+            self.app.alarm.stop()
+            self.app.handsfree.suspend()
+
+        def join():
+            self.app.alarm.wait(speech.preview_cancel)
+            self.app.handsfree.join()
+
         speech.preview(
             prefs,
-            suspend=self.app.handsfree.suspend,
-            join=self.app.handsfree.join,
+            suspend=suspend,
+            join=join,
             finished=finished,
         )
 

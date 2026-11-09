@@ -350,6 +350,18 @@ class PreferencesDialog:
             "Search Engine",
             [(key, value[0]) for key, value in SEARCH_ENGINES.items()],
         )
+        timers = Adw.PreferencesGroup(
+            title="Timer",
+            description="One local timer, from 1 second to 24 hours. Say set a timer for 24 minutes. Time left is also in the tray. DictaDesk must be running to alert; a pending countdown is restored on restart. Sound waits for active dictation to finish, then plays a short alarm.",
+        )
+        self.timer_status = Adw.ActionRow(title="Countdown")
+        self.timer_status.add_suffix(
+            Gtk.Button(
+                label="Cancel Timer", action_name="app.timer-cancel", valign=Gtk.Align.CENTER
+            )
+        )
+        timers.add(self.timer_status)
+        self.pages["commands"].add(timers)
         self.spin(self.voice_group, "volume_step", "Default Volume Adjustment (%)", 1, 100)
         self.spin(
             self.voice_group, "brightness_step", "Default Brightness Adjustment (%)", 1, 100
@@ -1035,6 +1047,7 @@ class PreferencesDialog:
             self.refresh()
 
     def refresh(self):
+        self.timer_status.set_subtitle(self.app.countdown.status())
         self.speech_settings.refresh()
         if self.feature_setup:
             self.feature_setup.refresh()

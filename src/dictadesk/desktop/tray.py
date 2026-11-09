@@ -234,6 +234,12 @@ class Tray:
                 "pause-commands",
                 bool(self.app.handsfree and self.app.handsfree.enabled and not c.busy),
             ),
+            13: (self.app.countdown.status(), "timer-status", True),
+            14: (
+                "Cancel Timer",
+                "timer-cancel",
+                self.app.countdown.exists or bool(self.app.countdown.problem),
+            ),
             5: ("Quit", "quit", True),
         }
 
