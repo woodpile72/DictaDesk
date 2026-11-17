@@ -77,10 +77,10 @@ def synthesize(voice, engine, text):
     if (
         not isinstance(text, str)
         or not text.strip()
-        or len(text) > 120
+        or len(text) > 600
         or not text.isprintable()
     ):
-        raise ValueError("Use a short, printable spoken acknowledgment.")
+        raise ValueError("Use a short, printable speech prompt.")
     if engine == "espeak":
         return voice.synthesize(text)
     blocks, size, rate = [], 0, 0

@@ -38,7 +38,7 @@ including each distribution's .dist-info directory and bundled library notices.
 
 Acknowledgments include ONNX Runtime, onnx-asr, Moonshine Voice, NumPy,
 FlatBuffers, Hugging Face Hub, sounddevice/PortAudio, python-xlib, keyring,
-SecretStorage, cryptography and their dependencies. Source project URLs and
+SecretStorage, cryptography, RapidFuzz (MIT) and their dependencies. Source project URLs and
 versions are retained in the installed wheel metadata. FlatBuffers' Python
 wheel omits the full Apache 2.0 text; packaging/licenses/Apache-2.0.txt supplies
 it alongside the preserved Copyright 2014 Google Inc. notices in its source.

@@ -503,6 +503,55 @@ class CoordinatorTests(unittest.TestCase):
         self.hf.stop.wait = lambda timeout: self.hf.stop.is_set()
         return active
 
+    def test_discarded_wake_clips_keep_stream_until_complete_speech(self):
+        active = self.prepare(["Computer lock screen"])
+        sources = []
+        gates = []
+
+        def capture(source, stop, **kwargs):
+            self.assertEqual(active[0], 1)
+            sources.append(source)
+            gates.append(kwargs["gate"])
+            return VOICE if len(sources) == 4 else b""
+
+        def recognize(*args, **kwargs):
+            self.assertEqual(active[0], 0)
+            return {"text": "Computer lock screen"}
+
+        def action(*args, **kwargs):
+            self.assertEqual(active[0], 0)
+            self.hf.suspend()
+
+        self.session.recognizer.request.side_effect = recognize
+        self.hf.desktop_action = Mock(side_effect=action)
+        with patch("dictadesk.core.handsfree.utterance", side_effect=capture):
+            self.hf.run(0, self.hf.stop, self.session.preferences)
+        self.assertEqual(len(sources), 4)
+        self.assertTrue(all(source is sources[0] for source in sources))
+        self.assertTrue(all(gate is gates[0] for gate in gates))
+        self.session.recognizer.request.assert_called_once()
+        self.hf.desktop_action.assert_called_once()
+        self.assertEqual(active[0], 0)
+
+    def test_suspension_releases_stream_after_discarded_wake_clip(self):
+        active = self.prepare([])
+        sources = []
+
+        def capture(source, stop, **kwargs):
+            sources.append(source)
+            if len(sources) == 3:
+                self.hf.suspend()
+            return b""
+
+        with patch("dictadesk.core.handsfree.utterance", side_effect=capture):
+            self.hf.run(0, self.hf.stop, self.session.preferences)
+        self.assertEqual(len(sources), 3)
+        self.assertTrue(all(source is sources[0] for source in sources))
+        self.assertEqual(active[0], 0)
+        self.session.recognizer.request.assert_not_called()
+        self.launch.assert_not_called()
+        self.feedback.assert_not_called()
+
     def test_bare_search_waits_for_query_in_inline_and_two_step_modes(self):
         for prefix in ("Search.", "Search for.", "Search up."):
             for inline in (True, False):
@@ -691,6 +740,216 @@ class CoordinatorTests(unittest.TestCase):
         self.assertLess(len(diagnostic("a" * 10000, ("b" * 10000,))), 400)
         self.assertEqual(diagnostic(""), "Heard: No command recognized.")
 
+    def test_fuzzy_command_prompts_locally_before_confirming(self):
+        for enabled, speech_failure in ((True, False), (False, False), (True, True)):
+            with self.subTest(enabled=enabled, failure=speech_failure):
+                self.setUp()
+                self.session.preferences.tts_enabled = enabled
+                saved_phrase = self.session.preferences.tts_phrase
+                active = self.prepare(["Computer volum up", "yes"])
+                spoken, actions = [], []
+
+                def speak(prefs, stop):
+                    self.assertEqual(active[0], 0)
+                    spoken.append(prefs.tts_phrase)
+                    if speech_failure:
+                        raise RuntimeError("Output unavailable")
+                    return True
+
+                def clarify(suggestions, generation, **kwargs):
+                    self.assertEqual(active[0], 0)
+                    self.assertEqual(len(suggestions), 1)
+                    item = suggestions[0]
+
+                    def choose(number, heard):
+                        self.assertEqual(active[0], 0)
+                        if number == 1:
+                            actions.append((item.kind, item.arguments))
+                        self.hf.complete(generation)
+
+                    self.hf.offer_choices(
+                        generation,
+                        choose,
+                        prompt="Did you mean volume up? Say yes or no.",
+                        confirmation=True,
+                    )
+
+                self.hf.clarify = clarify
+                self.hf.speech_acknowledge = speak
+                with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
+                    self.hf.run(0, self.hf.stop, self.session.preferences)
+                self.assertEqual(actions, [("volume", ("up", 5))])
+                self.assertEqual(len(spoken), int(enabled))
+                self.assertEqual(self.session.preferences.tts_phrase, saved_phrase)
+                self.assertTrue(
+                    all(
+                        call.args[0]["op"] == "transcribe_pcm"
+                        for call in self.session.recognizer.request.call_args_list
+                    )
+                )
+
+    def test_prompt_cancellation_never_opens_answer_capture(self):
+        for change in ("cancel", "disable", "remote", "dictation", "lock"):
+            with self.subTest(change=change):
+                self.setUp()
+                self.session.preferences.tts_enabled = True
+                self.prepare([])
+                choose = Mock()
+                self.hf.offer_choices(
+                    0, choose, prompt="Did you mean lock screen?", confirmation=True
+                )
+                token = self.hf.choice[2]
+
+                def speak(prefs, stop):
+                    self.assertIs(stop, token)
+                    if change == "disable":
+                        self.session.preferences.hands_free = False
+                    elif change == "remote":
+                        self.session.preferences.backend = "openai"
+                    elif change == "dictation":
+                        self.session.busy = True
+                    elif change == "lock":
+                        self.session.desktop_blocked = True
+                    self.hf.suspend()
+                    self.assertTrue(stop.is_set())
+                    raise InterruptedError()
+
+                self.hf.speech_acknowledge = speak
+                with patch("dictadesk.core.handsfree.utterance") as capture:
+                    self.hf.await_action(0, self.hf.stop, self.session.preferences)
+                capture.assert_not_called()
+                choose.assert_not_called()
+                self.session.recognizer.request.assert_not_called()
+
+    def test_each_page_is_spoken_once_and_old_prompt_is_cancelled(self):
+        self.session.preferences.tts_enabled = True
+        active = self.prepare(["more", "two"])
+        spoken, received = [], []
+
+        def speak(prefs, stop):
+            self.assertEqual(active[0], 0)
+            spoken.append(prefs.tts_phrase)
+            return True
+
+        self.hf.speech_acknowledge = speak
+
+        def second(number, heard):
+            received.append(number)
+            self.hf.complete(0)
+
+        def first(number, heard):
+            self.assertEqual(number, "more")
+            old = self.hf.choice
+            self.hf.offer_choices(0, second, prompt="Second page")
+            self.assertTrue(old[2].is_set())
+
+        self.hf.offer_choices(0, first, prompt="First page")
+        with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
+            self.hf.await_action(0, self.hf.stop, self.session.preferences)
+        self.assertEqual(spoken, ["First page", "Second page"])
+        self.assertEqual(received, [2])
+
+    def test_acceptance_cue_precedes_execution_and_never_overlaps_capture(self):
+        for sounds in (True, False):
+            self.setUp()
+            self.session.preferences.command_sound = sounds
+            active = self.prepare([])
+            calls = []
+
+            def cue(stop):
+                self.assertEqual(active[0], 0)
+                calls.append("accepted")
+
+            def action():
+                self.assertEqual(active[0], 0)
+                calls.append("executed")
+                self.hf.complete(0)
+
+            self.hf.accept_beep = cue
+            self.hf.execute(0, action)
+            self.hf.execute(0, lambda: calls.append("duplicate"))
+            with patch("dictadesk.core.handsfree.utterance") as capture:
+                self.hf.await_action(0, self.hf.stop, self.session.preferences)
+            self.assertEqual(calls, (["accepted"] if sounds else []) + ["executed"])
+            capture.assert_not_called()
+
+    def test_cancel_during_acceptance_cue_prevents_action(self):
+        self.prepare([])
+        action = Mock()
+
+        def cue(stop):
+            self.hf.suspend()
+            self.assertTrue(stop.is_set())
+            raise InterruptedError()
+
+        self.hf.accept_beep = cue
+        self.hf.execute(0, action)
+        self.hf.await_action(0, self.hf.stop, self.session.preferences)
+        action.assert_not_called()
+
+    def test_failed_optional_cue_does_not_disable_command(self):
+        self.prepare([])
+        self.hf.accept_beep = Mock(side_effect=RuntimeError("No output device"))
+        action = Mock(side_effect=lambda: self.hf.complete(0))
+        self.hf.execute(0, action)
+        self.hf.await_action(0, self.hf.stop, self.session.preferences)
+        action.assert_called_once()
+
+    def test_confirmation_ready_then_acceptance_cues(self):
+        active = self.prepare(["yes"])
+        calls = []
+        self.hf.beep = lambda stop: calls.append(("ready", active[0]))
+        self.hf.accept_beep = lambda stop: calls.append(("accepted", active[0]))
+
+        def execute():
+            calls.append(("executed", active[0]))
+            self.hf.complete(0)
+
+        def choose(number, heard):
+            self.assertEqual(number, 1)
+            self.hf.execute(0, execute)
+
+        self.hf.offer_choices(0, choose, confirmation=True)
+        with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
+            self.hf.await_action(0, self.hf.stop, self.session.preferences)
+        self.assertEqual(calls, [("ready", 0), ("accepted", 0), ("executed", 0)])
+
+    def test_noise_and_invalid_answers_do_not_repeat_ready_cue(self):
+        self.session.preferences.tts_enabled = True
+        self.prepare(["", "background television", "maybe", "", "yes"])
+        self.hf.beep = Mock()
+        self.hf.speech_acknowledge = Mock(return_value=True)
+        replies = []
+
+        def choose(number, heard):
+            replies.append(number)
+            if number == 1:
+                self.hf.complete(0)
+
+        self.hf.offer_choices(0, choose, prompt="Did you mean volume up?", confirmation=True)
+        with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
+            self.hf.await_action(0, self.hf.stop, self.session.preferences)
+        self.assertEqual(replies, [None, None, None, None, 1])
+        self.assertEqual(self.hf.beep.call_count, 1)
+        self.hf.speech_acknowledge.assert_called_once()
+
+    def test_delayed_accepted_action_cannot_execute_after_disable(self):
+        self.prepare([])
+        self.hf.accept_beep = Mock()
+        action = Mock()
+        queued = []
+
+        def dispatch(fn):
+            queued.append(fn)
+            self.hf.suspend()
+
+        self.session.dispatch = dispatch
+        self.hf.execute(0, action)
+        self.hf.await_action(0, self.hf.stop, self.session.preferences)
+        self.assertEqual(len(queued), 1)
+        queued[0]()
+        action.assert_not_called()
+
     def test_spoken_choice_uses_same_local_worker_and_releases_capture(self):
         active = self.prepare(["Computer", "open Calibre", "two"])
         selected = []
@@ -874,7 +1133,7 @@ class CoordinatorTests(unittest.TestCase):
         self.hf.speech_acknowledge.assert_not_called()
         self.assertEqual(self.hf.recognitions, 1)
 
-    def test_spoken_acknowledgment_replaces_beep_and_failure_falls_back(self):
+    def test_ready_beep_follows_spoken_acknowledgment_or_output_failure(self):
         for answer in (True, False, RuntimeError("optional output failed")):
             self.setUp()
             self.session.preferences.tts_enabled = True
@@ -889,7 +1148,7 @@ class CoordinatorTests(unittest.TestCase):
             with patch("dictadesk.core.handsfree.utterance", return_value=VOICE):
                 self.hf.run(0, self.hf.stop, self.session.preferences)
             self.hf.speech_acknowledge.assert_called_once()
-            self.assertEqual(self.hf.beep.call_count, 0 if answer is True else 1)
+            self.assertEqual(self.hf.beep.call_count, 1)
             self.launch.assert_called_once()
 
     def test_unknown_inline_command_reports_once_without_listening_for_another(self):

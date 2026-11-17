@@ -176,6 +176,13 @@ Diagnostics are bounded plain text and are not written to application history or
 logs. Wake-listening transcripts are never included. The local diagnostics update
 passes 205 unit tests and isolated GTK notification/Details checks.
 
+Incomplete wake clips caused by sustained background noise are discarded and the
+gate recalibrates without reopening microphone capture. PCM buffers remain bounded
+to one utterance; capture still closes before recognition, cues, and actions, and
+on suspension or cancellation. Regression tests cover repeated discarded clips,
+recognition after them, and microphone release on suspension. This reduces device
+and real-time scheduling requests; it does not change PipeWire or portal settings.
+
 Application suggestions show four numbered entries per page, plus 5 / More when
 another page exists. The same local worker recognizes one through four, five,
 more/other/next page, and cancel. Each page has a 20-second listening window with
@@ -305,3 +312,57 @@ worker and then releases it, retaining the active dictation model. A failed save
 input or an unloaded model no longer permanently disables sample recording.
 ``tests/test_samples.py`` covers these transitions and unsaved remote credentials
 with fixtures; no microphone or paid API is used by automated checks.
+
+Local 1.2.4 development: matching and audio feedback
+--------------------------------------------------
+
+RapidFuzz 3.14.3 is pinned by wheel hash; its MIT license remains in the vendor
+metadata. Exact parsing stays authoritative. Unknown commands can suggest a
+single corrected command word; arguments are reparsed without fuzzy edits.
+Directions, mute/unmute, numbers and negation cannot be corrected. Approximate
+commands always require explicit confirmation. Search query text is not spell
+corrected. Application suggestions use RapidFuzz with the existing chooser.
+
+A single choice accepts yes/no or its number. Multiple choices accept numbers
+and cancel. Optional local TTS reads the choice before capture; failure leaves
+the visual chooser usable. Worker speech prompts are bounded to 600 characters
+and 30 seconds of audio; the saved acknowledgment remains limited to 120 chars.
+
+Play Command Sounds controls both cues: one beep means ready for the next
+utterance; two quick beeps mean a resolved command is accepted for execution,
+not a guarantee that the desktop action succeeds. Execution errors still report
+normally. Readiness follows optional spoken prompts, including follow-up searches
+and chooser pages. Background noise and rejected answers do not repeat the ready cue or speech
+and do not extend the page timeout. Each newly displayed page gets one ready cue. No routine success notifications were added.
+
+All prompt/cue playback and answer capture use the existing hands-free worker.
+Capture is closed during output. Each page/action has a cancellation token;
+dictation, Escape, disabling and lock changes prevent stale action callbacks.
+The cue setting and TTS remain independent; neither is enabled automatically.
+
+Extra isolated checks: ``tests/command_matching_acceptance.py`` and
+``tests/command_flow_acceptance.py`` through ``scripts/test-ui``. The latter
+exercises the actual worker/GTK handoff with fixture ASR and audio, checking
+spoken choice -> ready -> yes -> accepted -> one execution. Real eSpeak
+synthesis of a 147-character five-choice prompt produced 12.39 seconds of audio
+offline; no physical speaker/microphone acceptance is claimed. Matching 250
+short timer queries took median 2.25 ms and p95 2.67 ms on this desktop.
+
+This is a local development package, not a published release.
+
+Local dev4 refinement: chooser pages show only the title, options and a short
+answer hint. Spoken prompts omit the introductory/explanatory phrases. Single
+suggestions ask the action directly; lists read just the numbered names.
+Unrecognized answers retain the hint and place diagnostics in its tooltip;
+command failures retain their existing diagnostic feedback. No repeating cues
+are generated while waiting through noise or unrecognized answers.
+
+1.2.4 validation
+----------------
+
+The consolidated update passes 343 unit tests and all 24 isolated desktop
+acceptance scripts, including confirmation flow, cancellation, matching, tray
+startup, destinations, timers, and microphone-stream reuse. These checks use
+fixtures and do not establish recognition accuracy for every voice or hardware.
+The test wrapper detaches private portal FUSE mounts before scratch cleanup and
+preserves the tested command’s exit status.

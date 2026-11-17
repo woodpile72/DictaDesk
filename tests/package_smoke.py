@@ -19,7 +19,7 @@ from Xlib.ext import xtest  # noqa: E402
 import onnxruntime  # noqa: E402
 import moonshine_voice  # noqa: E402, F401
 
-assert __version__ == os.environ.get("DICTADESK_EXPECT_VERSION", "1.2.2")
+assert __version__ == os.environ.get("DICTADESK_EXPECT_VERSION", "1.2.4")
 assert onnxruntime.get_available_providers()
 defaults = SettingsStore().read()
 assert defaults.local_model == "parakeet"

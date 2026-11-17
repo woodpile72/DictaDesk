@@ -324,7 +324,9 @@ class PreferencesDialog:
         self.wake_phrase.connect("notify::text", lambda *_: self.refresh_backend())
         self.voice_group.add(self.wake_phrase)
         sound = Adw.SwitchRow(
-            title="Play acknowledgment sound", active=self.values["command_sound"]
+            title="Play command sounds",
+            subtitle="One beep: ready to listen. Two quick beeps: command accepted.",
+            active=self.values["command_sound"],
         )
         self.voice_group.add(sound)
         self.controls["command_sound"] = sound

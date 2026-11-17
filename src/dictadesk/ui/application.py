@@ -140,6 +140,7 @@ class Application(Adw.Application):
             desktop_action=self.run_desktop_command,
             capture_destination=self.capture_command_destination,
             speech_acknowledge=self.speech.acknowledge,
+            clarify=self.clarify_command,
             output_busy=lambda: self.speech.previewing or self.alarm_pending or self.alarm.busy,
         )
         self.session.handsfree = self.handsfree
@@ -757,6 +758,12 @@ class Application(Adw.Application):
         return self.destinations.capture() if self.destinations else Target(None)
 
     def run_desktop_command(self, kind, arguments, generation, *, heard=""):
+        self.handsfree.execute(
+            generation,
+            lambda: self.perform_desktop_command(kind, arguments, generation, heard=heard),
+        )
+
+    def perform_desktop_command(self, kind, arguments, generation, *, heard=""):
         target = self.handsfree.activation_target
 
         def valid():
@@ -817,6 +824,65 @@ class Application(Adw.Application):
             return
         self.desktop_commands.execute(kind, arguments, valid, completed, target=target)
 
+    def clarify_command(self, suggestions, generation, *, heard=""):
+        if not suggestions or not self.handsfree.valid(generation):
+            return
+        dialog = CommandChooser(self, "Did You Mean?", "")
+        dialog.context.set_visible(False)
+        single = len(suggestions) == 1
+        help_text = "Say yes or no." if single else "Say a number or cancel."
+        dialog.hint.set_label(help_text)
+
+        def choose(number, heard_choice=""):
+            if not self.handsfree.valid(generation) or self.command_chooser != (
+                dialog,
+                generation,
+            ):
+                return
+            if number in ("cancel", "timeout"):
+                dialog.close()
+            elif isinstance(number, int) and 1 <= number <= len(suggestions):
+                item = suggestions[number - 1]
+                # Close just this UI and cancel its capture/playback before
+                # handing off the still-valid activation to the chosen action.
+                self.handsfree.choice[2].set()
+                self.handsfree.choice = None
+                self.command_chooser = None
+                dialog.destroy()
+                if item.kind == "open":
+                    self.launch_command(item.arguments, generation, heard=heard)
+                else:
+                    self.run_desktop_command(item.kind, item.arguments, generation, heard=heard)
+            else:
+                dialog.hint.set_tooltip_text(diagnostic(heard_choice))
+
+        for number, item in enumerate(suggestions, 1):
+            row = Adw.ActionRow(
+                title=f"{number}. {item.label}",
+                activatable=True,
+                use_markup=False,
+                title_lines=2,
+            )
+            row.connect("activated", lambda _, number=number: choose(number))
+            dialog.listing.append(row)
+
+        def closed(*_):
+            self.handsfree.complete(generation)
+            if self.command_chooser and self.command_chooser[0] is dialog:
+                self.command_chooser = None
+            return False
+
+        dialog.connect("close-request", closed)
+        self.command_chooser = (dialog, generation)
+        prompt = (
+            f"{suggestions[0].label[:140]}?"
+            if single
+            else "; ".join(f"{n}. {item.label[:100]}" for n, item in enumerate(suggestions, 1))
+            + "."
+        )
+        self.handsfree.offer_choices(generation, choose, prompt=prompt, confirmation=single)
+        dialog.present()
+
     def launch_command(self, query, generation, *, heard=""):
         if not self.handsfree.valid(generation):
             return
@@ -833,6 +899,9 @@ class Application(Adw.Application):
             matches = match_applications(query, applications)
 
         def launch(app):
+            self.handsfree.execute(generation, lambda: perform_launch(app))
+
+        def perform_launch(app):
             if not self.handsfree.valid(generation):
                 return
             try:
@@ -853,8 +922,9 @@ class Application(Adw.Application):
             dialog = CommandChooser(
                 self,
                 "Did You Mean?" if len(matches) == 1 else "Which Application?",
-                diagnostic(heard, query),
+                "",
             )
+            dialog.context.set_visible(False)
             listing, hint = dialog.listing, dialog.hint
 
             current_page = [-1]
@@ -866,25 +936,26 @@ class Application(Adw.Application):
                 start = page * 4
                 shown = matches[start : start + 4]
                 more = start + 4 < len(matches)
-                help_text = "Say a number or “cancel”. You can also click a choice."
-                if more:
-                    help_text = (
-                        "Say a number, “more”, or “cancel”. You can also click a choice."
-                    )
+                help_text = "Say a number or cancel."
                 hint.set_label(help_text)
 
                 def choose(number, heard_choice=""):
-                    if not self.handsfree.valid(generation) or current_page[0] != page:
+                    if (
+                        not self.handsfree.valid(generation)
+                        or current_page[0] != page
+                        or self.command_chooser != (dialog, generation)
+                    ):
                         return
                     if number in ("cancel", "timeout"):
                         dialog.close()
                     elif number in (5, "more") and more:
                         render(page + 1)
                     elif isinstance(number, int) and 1 <= number <= len(shown):
+                        self.command_chooser = None
+                        dialog.destroy()
                         launch(shown[number - 1])
-                        dialog.close()
                     else:
-                        hint.set_label(f"{diagnostic(heard_choice)}\n{help_text}")
+                        hint.set_tooltip_text(diagnostic(heard_choice))
 
                 for number, app in enumerate(shown, 1):
                     row = Adw.ActionRow(
@@ -908,7 +979,21 @@ class Application(Adw.Application):
                     row = Adw.ActionRow(title="5. More matches", activatable=True)
                     row.connect("activated", lambda *_: choose("more"))
                     listing.append(row)
-                self.handsfree.offer_choices(generation, choose)
+                single = len(matches) == 1
+                prompt = (
+                    f"Open {shown[0].get_display_name()[:100]}?"
+                    if single
+                    else "; ".join(
+                        f"{n}. {item.get_display_name()[:80]}"
+                        for n, item in enumerate(shown, 1)
+                    )
+                    + ("; 5. More matches." if more else ".")
+                )
+                if single:
+                    hint.set_label("Say yes or no.")
+                self.handsfree.offer_choices(
+                    generation, choose, prompt=prompt, confirmation=single
+                )
 
             def closed(*_):
                 self.handsfree.complete(generation)

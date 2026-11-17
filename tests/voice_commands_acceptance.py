@@ -157,7 +157,9 @@ def launched():
         app.launch_command(("firefoxx",), app.handsfree.generation, heard="Open Firefoxx")
         single, _ = app.command_chooser
         assert single.get_title() == "Did You Mean?"
-        assert "Open Firefoxx" in single.context.get_label()
+        assert not single.context.get_visible()
+        assert single.hint.get_label() == "Say yes or no."
+        assert app.handsfree.choice[3] == "Open Firefox Fixture?"
         assert single.key_pressed(None, Gdk.KEY_Escape, 0, 0)
         assert single.cleaned
         app.handsfree.stop.clear()
@@ -212,6 +214,10 @@ def pages_choose():
     adjustment = window.scroll.get_vadjustment()
     assert adjustment.get_upper() <= adjustment.get_page_size() + 1
     assert window.cancel.get_mapped()
+    assert not window.context.get_visible()
+    assert window.hint.get_label() == "Say a number or cancel."
+    assert app.handsfree.choice[3].startswith("1. Choice App 1;")
+    assert "Say a number" not in app.handsfree.choice[3]
     old = app.handsfree.choice
     app.handsfree.choice[1](choice_number("five"), "five")
     assert old[2].is_set()
@@ -262,6 +268,9 @@ def done():
 
 
 with (
+    patch(
+        "dictadesk.core.handsfree.HandsFree.execute", lambda self, generation, action: action()
+    ),
     patch("dictadesk.core.session.check"),
     patch("dictadesk.core.session.microphones", return_value=[]),
     patch("dictadesk.core.session.Session.load_available_model"),

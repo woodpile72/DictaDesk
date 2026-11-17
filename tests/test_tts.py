@@ -177,6 +177,25 @@ class SpeechOutputTests(unittest.TestCase):
         self.speech.prepare_thread.join(2)
         self.assertFalse(self.worker.loaded)
 
+    def test_multi_choice_prompt_is_bounded_but_longer_than_saved_acknowledgment(self):
+        from dictadesk.audio.tts_worker import synthesize
+
+        prompt = (
+            "Which application? "
+            + "; ".join(f"{i}. Example application number {i}" for i in range(1, 5))
+            + ". Say a number or cancel."
+        )
+        self.assertGreater(len(prompt), 120)
+        voice = Mock()
+        voice.synthesize.return_value = (16000, b"00")
+        self.assertEqual(synthesize(voice, "espeak", prompt), (16000, b"00"))
+        voice.synthesize.assert_called_once_with(prompt)
+        for invalid in ("a" * 601, "line\nbreak", ""):
+            with self.assertRaises(ValueError):
+                synthesize(voice, "espeak", invalid)
+        with self.assertRaises(ValueError):
+            replace(Preferences(), tts_phrase=prompt).validate()
+
     def test_timer_confirmation_synthesizes_requested_duration_without_saving_phrase(self):
         original = Preferences(tts_enabled=True)
         prefs = replace(original, tts_phrase="A timer has been set for 24 minutes.")

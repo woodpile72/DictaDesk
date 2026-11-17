@@ -248,19 +248,31 @@ def utterance(
     return result
 
 
-def acknowledge(stop):
-    """A short synthesized tone; caller has already closed microphone capture."""
-    import sounddevice as sd
-
+def cue_audio(accepted=False):
+    """One ready tone, or two shorter acceptance tones with a clear gap."""
     rate = 16000
-    samples = array(
+    count = 1280 if accepted else 1920
+    pulse = array(
         "h",
         (
-            int(3500 * math.sin(2 * math.pi * 880 * i / rate) * math.sin(math.pi * i / 1920))
-            for i in range(1920)
+            int(3500 * math.sin(2 * math.pi * 880 * i / rate) * math.sin(math.pi * i / count))
+            for i in range(count)
         ),
-    )
-    if stop.is_set():
-        return
-    with sd.RawOutputStream(samplerate=rate, channels=1, dtype="int16") as stream:
-        stream.write(samples.tobytes())
+    ).tobytes()
+    return rate, pulse + bytes(1920) + pulse if accepted else pulse
+
+
+def acknowledge(stop):
+    """One beep: ready for the next utterance. Capture must already be closed."""
+    from .speech import play
+
+    rate, data = cue_audio()
+    play(rate, data, stop)
+
+
+def accepted(stop):
+    """Two quick beeps: a resolved command was accepted for execution."""
+    from .speech import play
+
+    rate, data = cue_audio(accepted=True)
+    play(rate, data, stop)

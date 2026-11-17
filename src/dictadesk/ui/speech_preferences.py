@@ -22,11 +22,9 @@ class SpeechPreferences:
         self.setting_up = False
         self.group = Adw.PreferencesGroup(
             title="Speech — Experimental",
-            description="Optional spoken wake acknowledgment. Off by default. Voices are downloaded only when you choose Download; speech stays on this computer.",
+            description="Optional spoken acknowledgment and command clarification. Off by default. Voices are downloaded only when you choose Download; speech stays on this computer.",
         )
-        self.enabled = Adw.SwitchRow(
-            title="Enable spoken acknowledgment", active=prefs.tts_enabled
-        )
+        self.enabled = Adw.SwitchRow(title="Enable spoken feedback", active=prefs.tts_enabled)
         self.group.add(self.enabled)
         self.engine_values = tuple(ENGINES)
         self.engine = Adw.ComboRow(

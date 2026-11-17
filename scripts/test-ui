@@ -1,7 +1,22 @@
 #!/bin/bash
 set -euo pipefail
 scratch=$(mktemp -d /tmp/dictadesk-test.XXXXXX)
-trap 'rm -rf "$scratch"' EXIT
+cleanup() {
+    result=$?
+    trap - EXIT
+    # Private portal services can leave FUSE mounts behind as their bus exits.
+    # Detach them before deleting the scratch tree; preserve the test's status.
+    for target in "$scratch/runtime/doc" "$scratch/runtime/gvfs"; do
+        if mountpoint -q "$target"; then
+            fusermount3 -uz -- "$target" 2>/dev/null || fusermount -uz -- "$target" 2>/dev/null || true
+        fi
+    done
+    if ! rm -rf --one-file-system -- "$scratch"; then
+        echo "Warning: could not fully clean test scratch directory: $scratch" >&2
+    fi
+    exit "$result"
+}
+trap cleanup EXIT
 export HOME="$scratch" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" XDG_DATA_HOME="$scratch/data" XDG_STATE_HOME="$scratch/state" XDG_RUNTIME_DIR="$scratch/runtime"
 export XDG_SESSION_TYPE=x11 GTK_A11Y=none GSK_RENDERER=cairo
 mkdir -m 700 "$XDG_RUNTIME_DIR"

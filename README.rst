@@ -11,8 +11,8 @@ Dictate directly into text fields using a keyboard shortcut. DictaDesk runs in
 the system tray, with no main application window. Built with Python, GTK 4 and
 libadwaita for Cinnamon. Local transcription is the default.
 
-`Download DictaDesk 1.2.2 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.2/dictadesk_1.2.2_amd64.deb>`_
-· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.2.2>`_
+`Download DictaDesk 1.2.4 for Linux (.deb) <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.4/dictadesk_1.2.4_amd64.deb>`_
+· `Release notes <https://github.com/woodpile72/DictaDesk/releases/tag/v1.2.4>`_
 · `Report an issue <https://github.com/woodpile72/DictaDesk/issues>`_
 
 .. image:: media/screenshots/preferences-local.png
@@ -28,11 +28,11 @@ Install
 
 Developed and tested on **Linux Mint 22.3 Cinnamon, X11, x86-64 (amd64)**.
 Download the Debian package and
-`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.2/SHA256SUMS>`_
+`SHA256SUMS <https://github.com/woodpile72/DictaDesk/releases/download/v1.2.4/SHA256SUMS>`_
 into the same folder, then run::
 
     sha256sum --ignore-missing -c SHA256SUMS
-    sudo apt install ./dictadesk_1.2.2_amd64.deb
+    sudo apt install ./dictadesk_1.2.4_amd64.deb
 
 Check that the checksum reports ``OK``, then launch **DictaDesk** from your
 application menu. Use the tray menu to open Preferences and download a local

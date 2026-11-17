@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Bounded wake matching and exact command grammar; suggestions never execute speech."""
 
-from difflib import SequenceMatcher
+from rapidfuzz.fuzz import ratio
 import re
 import unicodedata
 from pathlib import Path
@@ -135,9 +135,9 @@ def match_applications(query, applications):
             elif len(spoken) >= 4:
                 # Also compare the first words, e.g. caliber -> Calibre Reader.
                 for candidate in (name, name[: len(query)]):
-                    ratio = SequenceMatcher(None, spoken, " ".join(candidate)).ratio()
-                    if ratio >= 0.8:
-                        score = max(score, ratio)
+                    similarity = ratio(spoken, " ".join(candidate)) / 100
+                    if similarity >= 0.8:
+                        score = max(score, similarity)
         if score:
             suggestions[ident] = (score, app)
     if exact:
@@ -162,8 +162,13 @@ def diagnostic(heard, query=None):
     return "\n".join(lines)
 
 
-def choice_number(text):
+def choice_number(text, *, confirmation=False):
     tokens = words(text)
+    if confirmation:
+        if tokens in (("yes",), ("yes", "please"), ("confirm",)):
+            return 1
+        if tokens in (("no",), ("no", "thanks")):
+            return "cancel"
     if tokens in (("cancel",), ("more",), ("other",), ("next",), ("next", "page")):
         return "cancel" if tokens == ("cancel",) else "more"
     if tokens and tokens[0] in ("number", "option"):

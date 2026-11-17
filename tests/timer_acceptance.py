@@ -106,6 +106,9 @@ def run():
 
 
 with (
+    patch(
+        "dictadesk.core.handsfree.HandsFree.execute", lambda self, generation, action: action()
+    ),
     patch("dictadesk.core.session.check"),
     patch("dictadesk.core.session.microphones", return_value=[]),
     patch("dictadesk.core.session.Session.load_available_model"),

@@ -7,9 +7,10 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from ..audio.handsfree import AdaptiveGate, MemoryInput, acknowledge, utterance
+from ..audio.handsfree import AdaptiveGate, MemoryInput, acknowledge, accepted, utterance
 from .voice_commands import wake_activation, command, choice_number, words
 from .search import clean_search_query, search_prompt
+from .command_matching import suggest_commands
 from .diagnostics import event, failure
 
 
@@ -22,9 +23,11 @@ class HandsFree:
         feedback,
         *,
         desktop_action=None,
+        clarify=None,
         capture_destination=None,
         source=MemoryInput,
         beep=acknowledge,
+        accept_beep=accepted,
         speech_acknowledge=None,
         output_busy=lambda: False,
         wake_detected=lambda inline: None,
@@ -32,8 +35,11 @@ class HandsFree:
         self.session = session
         self.changed, self.launch, self.feedback = changed, launch, feedback
         self.source, self.beep = source, beep
+        self.accept_beep = accept_beep
+        self.action = None
         self.speech_acknowledge, self.output_busy = speech_acknowledge, output_busy
         self.desktop_action = desktop_action
+        self.clarify = clarify
         self.wake_detected = wake_detected
         self.capture_destination = capture_destination
         self.activation_target = None
@@ -94,6 +100,9 @@ class HandsFree:
         )
 
     def suspend(self):
+        if self.action:
+            self.action[2].set()
+        self.action = None
         if self.choice:
             self.choice[2].set()
         self.choice = None
@@ -162,13 +171,31 @@ class HandsFree:
 
         self.session.dispatch(update)
 
-    def offer_choices(self, generation, handler):
+    def offer_choices(self, generation, handler, *, prompt="", confirmation=False):
         if self.valid(generation):
             # A new identity also invalidates recognition from the previous page.
             if self.choice:
                 self.choice[2].set()
-            self.choice = (generation, handler, threading.Event())
+            self.choice = (generation, handler, threading.Event(), prompt, confirmation)
             self.changed()
+
+    def execute(self, generation, action):
+        """Queue a resolved action so its cue never overlaps microphone capture."""
+        if not self.valid(generation) or self.action is not None:
+            return
+        if self.choice:
+            self.choice[2].set()
+            self.choice = None
+        self.action = (generation, action, threading.Event())
+
+    def ready_cue(self, prefs, stop):
+        if prefs.command_sound:
+            try:
+                self.beep(stop)
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                failure("handsfree.ready_cue_failed", exc)
 
     def await_action(self, generation, stop, prefs):
         page, deadline = None, 0
@@ -178,12 +205,61 @@ class HandsFree:
                 event("handsfree.action_timeout", generation=generation)
                 self.session.dispatch(lambda: self.complete(generation))
                 return
+            action = self.action
+            if action is not None:
+                if prefs.command_sound:
+                    try:
+                        self.accept_beep(action[2])
+                    except InterruptedError:
+                        continue
+                    except Exception as exc:
+                        failure("handsfree.acceptance_cue_failed", exc)
+                delivered = threading.Event()
+
+                def perform(action=action, delivered=delivered):
+                    try:
+                        if (
+                            self.valid(generation)
+                            and self.action is action
+                            and not delivered.is_set()
+                        ):
+                            self.action = None
+                            action[1]()
+                    finally:
+                        delivered.set()
+
+                self.session.dispatch(perform)
+                action_wait = time.monotonic() + 3
+                while self.valid(generation) and not delivered.wait(0.05):
+                    if time.monotonic() >= action_wait:
+                        delivered.set()
+                        raise TimeoutError("Command dispatch timed out.")
+                continue
             choice = self.choice
             if choice is None:
                 stop.wait(0.1)
                 continue
             if choice is not page:
-                page, deadline = choice, time.monotonic() + 20
+                page = choice
+                # Capture is closed while we speak. Page replacement, Escape,
+                # disabling and dictation all cancel this same playback token.
+                if choice[3] and prefs.tts_enabled and self.speech_acknowledge:
+                    try:
+                        self.speech_acknowledge(replace(prefs, tts_phrase=choice[3]), choice[2])
+                    except InterruptedError:
+                        continue
+                    except Exception as exc:
+                        failure("handsfree.clarification_speech_failed", exc)
+                if not self.valid(generation) or self.choice is not choice:
+                    continue
+                try:
+                    self.ready_cue(prefs, choice[2])
+                except InterruptedError:
+                    continue
+                if choice[2].wait(0.4):
+                    continue
+                deadline = time.monotonic() + 20
+                action_deadline = max(action_deadline, deadline + 5)
             with self.source(prefs) as source:
                 data = utterance(
                     source,
@@ -199,7 +275,7 @@ class HandsFree:
             if not data and time.monotonic() < deadline:
                 continue
             text = self.recognize(data, generation, stop)
-            reply = choice_number(text) if data else "timeout"
+            reply = choice_number(text, confirmation=choice[4]) if data else "timeout"
             delivered = threading.Event()
 
             def select(choice=choice, text=text, reply=reply, delivered=delivered):
@@ -233,6 +309,9 @@ class HandsFree:
             p.microphone,
             p.host_api,
             p.silence_threshold,
+            p.tts_enabled,
+            p.tts_engine,
+            p.tts_model,
         )
         if signature != self.signature:
             self.suspend()
@@ -314,21 +393,28 @@ class HandsFree:
                 # Open a fresh stream only after own sounds have finished.
                 with self.source(prefs) as source:
                     self.publish(generation, "wake")
-                    data = utterance(
-                        source,
-                        stop,
-                        threshold=prefs.silence_threshold,
-                        deadline=float("inf"),
-                        require_quiet=True,
-                        max_seconds=6,
-                        end_pause=1.0,
-                        require_complete=True,
-                        gate=gate,
-                        observe=lambda *values: self.observe_audio(generation, *values),
-                    )
+                    data = b""
+                    # A bounded clip can be discarded when background noise
+                    # never ends. Recalibrate on the same stream rather than
+                    # reopening the device for every incomplete clip.
+                    while self.valid(generation):
+                        data = utterance(
+                            source,
+                            stop,
+                            threshold=prefs.silence_threshold,
+                            deadline=float("inf"),
+                            require_quiet=True,
+                            max_seconds=6,
+                            end_pause=1.0,
+                            require_complete=True,
+                            gate=gate,
+                            observe=lambda *values: self.observe_audio(generation, *values),
+                        )
+                        if data:
+                            break
                 # Close capture before inference. Disable/dictation never waits
                 # for a model result to release the microphone.
-                if not self.valid(generation):
+                if not data or not self.valid(generation):
                     return
                 self.publish(generation, "processing")
                 text = self.recognize(data, generation, stop)
@@ -371,19 +457,14 @@ class HandsFree:
                 if inline:
                     text = inline
                 else:
-                    spoken = False
                     if prefs.tts_enabled and self.speech_acknowledge:
                         try:
-                            spoken = self.speech_acknowledge(prefs, stop)
+                            self.speech_acknowledge(prefs, stop)
                         except InterruptedError:
                             return
                         except Exception as exc:
                             failure("handsfree.speech_ack_failed", exc)
-                    if not spoken and prefs.command_sound:
-                        try:
-                            self.beep(stop)
-                        except Exception:
-                            pass  # Missing output must not disable voice commands.
+                    self.ready_cue(prefs, stop)
                     if stop.wait(0.4):
                         return
                     deadline = time.monotonic() + 8
@@ -406,11 +487,7 @@ class HandsFree:
                     # A natural pause after “search” is a request for a query,
                     # not an unrecognized command. One bounded follow-up only.
                     self.search_status(generation, "Listening for your search phrase.")
-                    if prefs.command_sound:
-                        try:
-                            self.beep(stop)
-                        except Exception:
-                            pass
+                    self.ready_cue(prefs, stop)
                     if not self.valid(generation) or stop.wait(0.4):
                         return
                     with self.source(prefs) as source:
@@ -446,6 +523,7 @@ class HandsFree:
                     recognized=kind != "unknown",
                     command=kind,
                 )
+                suggestions = suggest_commands(text, prefs) if kind == "unknown" else []
                 if kind != "cancel":
                     self.finished.clear()
 
@@ -453,7 +531,9 @@ class HandsFree:
                         if not self.valid(generation):
                             return
                         try:
-                            if kind == "open":
+                            if suggestions and self.clarify:
+                                self.clarify(suggestions, generation, heard=text)
+                            elif kind == "open":
                                 self.launch(query, generation, heard=text)
                             elif kind != "unknown" and self.desktop_action:
                                 self.desktop_action(kind, query, generation, heard=text)
